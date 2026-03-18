@@ -1,0 +1,49 @@
+# Entornos Python
+venv/
+venv_transporte/
+__pycache__/
+*.py[cod]
+.Python
+.env
+*.egg-info/
+
+# Binarios y descargas grandes (no subir al repo)
+*.tar.gz
+*.zip
+*.jar
+*.jar.1
+
+# NiFi / Hive embebidos locales
+nifi-2.0.0/
+hive/
+
+# Cassandra: solo esquemas CQL en raíz de carpeta; instancia completa fuera
+cassandra/bin/
+cassandra/lib/
+cassandra/data/
+cassandra/logs/
+cassandra/doc/
+cassandra/javadoc/
+cassandra/pylib/
+cassandra/tools/
+cassandra/LICENSE.txt
+cassandra/NEWS.txt
+cassandra/CHANGES.txt
+
+# Spark / Hive local
+metastore_db/
+spark-warehouse/
+derby.log
+
+# Logs y datos locales
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
