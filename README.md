@@ -63,9 +63,9 @@ pip install -r requirements.txt
 # Cassandra
 cqlsh -f cassandra/esquema_smart_grid.cql
 
-# Kafka
-kafka-topics.sh --create --topic energy_raw --bootstrap-server localhost:9092 --partitions 2 --replication-factor 1
-kafka-topics.sh --create --topic weather_raw --bootstrap-server localhost:9092 --partitions 2 --replication-factor 1
+# Kafka (instalación local en /opt/kafka)
+./scripts/instalar_kafka_local.sh
+# O manual: arrancar kafka-server-start.sh y crear topics energy_raw, weather_raw
 
 # Claves (recomendado por entorno)
 export ELECTRICITY_MAPS_API_KEY="..."   # opcional
@@ -91,6 +91,10 @@ python procesamiento/persistir_hive_ingesta.py --energy /tmp/smart_grid_last_ene
 
 | Documento | Contenido |
 |-----------|-----------|
+| [docs/ESPECIFICACION_REQUISITOS.md](docs/ESPECIFICACION_REQUISITOS.md) | Requisitos funcionales y no funcionales |
+| [docs/DISENO.md](docs/DISENO.md) | Diseño del sistema, arquitectura, modelo de datos |
+| [docs/CASOS_USO.md](docs/CASOS_USO.md) | Casos de uso con escenarios normales y alternativos |
+| [docs/DIAGRAMAS_UML.md](docs/DIAGRAMAS_UML.md) | Diagramas UML (Mermaid): casos de uso, secuencia, componentes, etc. |
 | [docs/API_INTEGRACION.md](docs/API_INTEGRACION.md) | Electricity Maps y OpenWeather |
 | [README_DESPLIEGUE_SMART_GRID.md](README_DESPLIEGUE_SMART_GRID.md) | Servicios, Cassandra, Kafka, troubleshooting |
 | [docs/AIRFLOW.md](docs/AIRFLOW.md) | DAGs y carpeta `dags` |

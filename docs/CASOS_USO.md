@@ -1,0 +1,236 @@
+# Especificación de Casos de Uso — Smart Grid España
+
+## 1. Actores
+
+| Actor | Descripción |
+|-------|-------------|
+| **Operador** | Usuario técnico que arranca servicios, ejecuta pipeline y monitoriza |
+| **Directivo** | Usuario que consulta cuadro de mando e informes históricos |
+| **Sistema** | Procesos automatizados (producer, Spark, Airflow) |
+
+---
+
+## 2. Casos de Uso
+
+### CU-01 Ejecutar ciclo de ingesta y procesamiento
+
+**Descripción:** El operador ejecuta un ciclo completo de 15 minutos (ingesta + procesamiento) para actualizar el estado de la red.
+
+**Actor principal:** Operador
+
+**Precondiciones:** Kafka, HDFS y Cassandra están levantados; topics y esquema creados.
+
+#### Escenario normal
+
+1. El operador abre el dashboard Streamlit.
+2. El operador pulsa **"Ejecutar ciclo 15 min"** en la barra lateral.
+3. El sistema ejecuta producer.py (ingesta desde APIs o simulación).
+4. El sistema publica en Kafka (energy_raw, weather_raw) y escribe backup en HDFS.
+5. El sistema ejecuta procesamiento_grafos.py.
+6. El sistema calcula PageRank, puntos de fallo y persiste en Cassandra.
+7. El sistema actualiza el dashboard y muestra el mapa con datos nuevos.
+8. El sistema muestra el informe "Cambios desde el ciclo anterior" (si hay ciclo previo).
+
+**Postcondiciones:** Cassandra actualizado; mapa y KPIs reflejan el nuevo estado.
+
+#### Escenario alternativo 2a: producer.py falla
+
+3a. producer.py devuelve error (API no disponible, Kafka no responde).
+4a. El sistema muestra "Fallo en producer.py" y expande la salida.
+5a. El caso de uso termina sin actualizar datos.
+
+#### Escenario alternativo 2b: procesamiento_grafos.py falla
+
+5b. procesamiento_grafos.py devuelve error (Cassandra no responde, JAR faltante).
+6b. El sistema muestra "Fallo en procesamiento_grafos.py" y expande la salida.
+7b. El ciclo no completa; los datos de Kafka/HDFS pueden reprocesarse manualmente.
+
+#### Escenario alternativo 2c: servicios no levantados
+
+3c. El operador intenta ejecutar sin tener Kafka/HDFS/Cassandra.
+4c. producer.py o procesamiento_grafos.py fallan con errores de conexión.
+5c. El operador debe arrancar servicios (CU-02) y reintentar.
+
+---
+
+### CU-02 Arrancar y comprobar servicios
+
+**Descripción:** El operador arranca los servicios base (HDFS, Kafka, Cassandra) y aplica esquemas.
+
+**Actor principal:** Operador
+
+**Precondiciones:** Ninguna (primera ejecución o tras parada).
+
+#### Escenario normal
+
+1. El operador abre la pestaña **"0 · Entorno (servicios)"**.
+2. El operador pulsa **"▶ Arrancar servicios (completo)"**.
+3. El sistema arranca HDFS (start-dfs o start-all).
+4. El sistema arranca Kafka.
+5. El sistema arranca Cassandra.
+6. El sistema crea topics energy_raw y weather_raw.
+7. El sistema aplica esquema Cassandra (keyspace smart_grid).
+8. El sistema aplica esquema Hive (si HDFS y spark-sql/hive disponibles).
+9. El sistema muestra el resultado de la comprobación (hdfs_ok, kafka_ok, cassandra_ok, etc.).
+
+**Postcondiciones:** Servicios en ejecución; esquemas aplicados.
+
+#### Escenario alternativo 3a: HDFS ya responde
+
+3a. El sistema detecta HDFS activo (puerto 9000) y omite el arranque.
+4a. Continúa con Kafka.
+
+#### Escenario alternativo 3b: Hive omite por timeout
+
+8b. SHOW DATABASES excede tiempo (metastore/Spark lento).
+9b. El sistema muestra "Hive omitido: SHOW DATABASES excedió tiempo" y continúa.
+10b. El operador puede aplicar setup_hive.hql manualmente más tarde.
+
+#### Escenario alternativo 3c: Cassandra no arranca
+
+5c. Cassandra falla (Java, puerto ocupado, etc.).
+6c. El sistema muestra error en cassandra_start.
+7c. Topics y Hive pueden aplicarse; Cassandra debe arrancarse manualmente.
+
+---
+
+### CU-03 Consultar cuadro de mando (informes históricos)
+
+**Descripción:** El directivo consulta informes históricos desde Hive para toma de decisiones.
+
+**Actor principal:** Directivo
+
+**Precondiciones:** Hive/Spark-SQL disponibles; catálogo con base smart_grid_analytics.
+
+#### Escenario normal
+
+1. El directivo abre la pestaña **"📊 Cuadro de mando"**.
+2. El directivo pulsa un botón de informe (p. ej. "Consumo energético total (MWh)").
+3. El sistema ejecuta la consulta Hive correspondiente.
+4. El sistema muestra los resultados en una tabla.
+5. El directivo puede pulsar "Limpiar resultado" o elegir otro informe.
+
+**Postcondiciones:** Informe mostrado en pantalla.
+
+#### Escenario alternativo 2a: Hive no responde (timeout)
+
+3a. spark-sql o hive exceden tiempo de espera.
+4a. El sistema muestra aviso de timeout y sugiere aumentar HIVE_CATALOG_PROBE_*_TIMEOUT_SEC o ejecutar en terminal.
+
+#### Escenario alternativo 2b: Tabla vacía o no existe
+
+4b. La consulta devuelve 0 filas o error de tabla inexistente.
+5b. El sistema muestra "Sin filas" o el mensaje de error.
+6b. El directivo debe asegurar que el pipeline ha generado datos históricos.
+
+---
+
+### CU-04 Visualizar mapa y estado de la red
+
+**Descripción:** El operador o directivo visualiza el mapa de España con subestaciones, líneas y estado en tiempo real.
+
+**Actor principal:** Operador, Directivo
+
+**Precondiciones:** Dashboard abierto.
+
+#### Escenario normal
+
+1. El usuario navega al mapa (debajo de las pestañas).
+2. El sistema carga subestaciones y líneas desde Cassandra.
+3. El sistema muestra el mapa con Folium; colores según estado (OK=verde, Alerta=naranja, Sobrecarga=rojo).
+4. El sistema muestra PageRank y puntos de fallo únicos en paneles laterales.
+5. El usuario puede hacer zoom y ver popups con detalles.
+
+**Postcondiciones:** Mapa actualizado con datos de Cassandra.
+
+#### Escenario alternativo 2a: Cassandra no conecta (modo demo)
+
+2a. No hay sesión al keyspace smart_grid.
+3a. El sistema usa datos demo (topología sin telemetría real).
+4a. El sistema muestra aviso "Mapa en modo topología (demo)".
+
+#### Escenario alternativo 2b: Cassandra vacía
+
+2b. subestaciones_estado está vacía.
+3b. El sistema muestra "Cassandra conectada pero subestaciones_estado vacía" y usa datos demo.
+
+---
+
+### CU-05 Consultar informe de cambios entre ciclos
+
+**Descripción:** El operador revisa qué ha cambiado respecto al ciclo anterior.
+
+**Actor principal:** Operador
+
+**Precondiciones:** Al menos un ciclo ejecutado previamente; datos cargados desde Cassandra.
+
+#### Escenario normal
+
+1. Tras ejecutar un ciclo (CU-01), el sistema carga los nuevos datos.
+2. El sistema compara con el snapshot del ciclo anterior.
+3. El sistema muestra el expander "📋 Cambios desde el ciclo anterior".
+4. Si hay cambios: subestaciones que cambiaron estado, KPIs, PageRank, articulaciones.
+5. Si no hay cambios: "Sin cambios detectados."
+
+**Postcondiciones:** Informe de diff visible.
+
+#### Escenario alternativo 1a: Primer ciclo
+
+2a. No existe snapshot previo.
+3a. No se muestra el expander de cambios.
+4a. El snapshot actual se guarda para el siguiente ciclo.
+
+---
+
+### CU-06 Ejecutar consultas Hive manuales (Monitorización)
+
+**Descripción:** El operador ejecuta consultas SQL en Hive para verificación KDD.
+
+**Actor principal:** Operador
+
+**Precondiciones:** Hive/Spark-SQL disponibles.
+
+#### Escenario normal
+
+1. El operador abre **"Monitorización"** (expander).
+2. El operador selecciona una plantilla o escribe SQL en el text area.
+3. El operador pulsa **"▶ Ejecutar SQL"**.
+4. El sistema ejecuta la consulta vía spark-sql o hive.
+5. El sistema muestra el resultado en tabla y salida raw.
+
+**Postcondiciones:** Resultado de la consulta mostrado.
+
+#### Escenario alternativo 4a: Error de sintaxis o tabla
+
+5a. La consulta falla (rc != 0).
+6a. El sistema muestra el mensaje de error en stderr.
+
+---
+
+### CU-07 Parar servicios
+
+**Descripción:** El operador detiene los servicios al finalizar la demo.
+
+**Actor principal:** Operador
+
+#### Escenario normal
+
+1. El operador pulsa **"■ Parar servicios base"** en Fase 0.
+2. El sistema detiene HDFS, Kafka y Cassandra.
+3. El sistema muestra el estado final de la comprobación.
+
+**Postcondiciones:** Servicios detenidos.
+
+---
+
+## 3. Matriz de trazabilidad
+
+| Caso de uso | Requisitos cubiertos |
+|-------------|----------------------|
+| CU-01 | RF-06.1, RF-06.2 |
+| CU-02 | RF-06.3, RF-05.7 |
+| CU-03 | RF-05.5 |
+| CU-04 | RF-05.1, RF-05.2, RF-05.3, RF-05.4 |
+| CU-05 | RF-05.6 |
+| CU-06 | RF-04.* (verificación) |
+| CU-07 | RF-05.7 |
