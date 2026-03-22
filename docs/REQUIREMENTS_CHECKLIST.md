@@ -21,7 +21,7 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 | Requisito PDF | Versión pedida | En el proyecto | ¿Cumple? |
 |---------------|----------------|----------------|----------|
-| Ingesta | NiFi 2.6.0 + Kafka 3.9.1 (KRaft) | Script Python + Kafka (NiFi no usado) | No (falta NiFi) |
+| Ingesta | NiFi 2.6.0 + Kafka 3.9.1 (KRaft) | NiFi 2.6.0 (API + GPS + ExecuteStreamCommand) + producer.py | Sí |
 | Procesamiento | Spark 3.5.x (SQL, Structured Streaming, GraphFrames) | Spark 3.5, GraphFrames, Spark SQL implícito; no Structured Streaming con ventanas | Parcial |
 | Orquestación | Airflow 2.10.x | DAG presente (versión según instalación) | Parcial |
 | Almacenamiento | HDFS 3.4.2, Cassandra 5.0, Hive | HDFS, Cassandra, Hive (versiones según instalación) | Sí |
@@ -35,11 +35,11 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 | Punto del PDF | Qué pide | Estado en el proyecto | ¿Cumple? |
 |---------------|----------|------------------------|----------|
-| Fuentes externas | **NiFi** consumiendo API pública (OpenWeather, etc.) y logs GPS simulados | Script Python llama a OpenWeather y simula GPS; **no hay NiFi** | No |
+| Fuentes externas | **NiFi** consumiendo API pública (OpenWeather, etc.) y logs GPS simulados | NiFi: InvokeHTTP OpenWeather, ExecuteStreamCommand (producer.py), GetFile (GPS) | Sí |
 | Streaming | Publicar en Kafka con **dos temas**: "Datos Crudos" y "Datos Filtrados" | Un solo tema `transporte_status` (datos ya enriquecidos) | Parcial |
 | Registro | Copia "raw" en HDFS para auditoría | JSON de ingesta guardado en HDFS | Sí |
 
-**Conclusión Fase I:** Sin NiFi y sin separación explícita de temas raw/filtrados, **no se cumple al 100%**. Para acercarse: integrar NiFi en la ingesta y usar dos temas Kafka (raw + filtrado).
+**Conclusión Fase I:** NiFi integrado (API + logs GPS + ExecuteStreamCommand); topics `energy_raw`, `weather_raw`, `gps_raw`.
 
 ---
 
@@ -98,7 +98,7 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 ## Qué falta para alinearse al PDF
 
-1. **NiFi**: Integrar NiFi 2.6.0 para la ingesta (API + logs GPS) y que publique en Kafka (y opcionalmente escriba raw en HDFS). El script Python podría sustituirse o complementarse.
+1. ~~**NiFi**~~: Integrado. `./scripts/instalar_nifi_260.sh`; dashboard Fase 1 → NiFi. Flujos: API (InvokeHTTP), ExecuteStreamCommand (producer.py), GetFile (GPS) → PublishKafka. Ver `docs/NIFI_INTEGRACION.md`.
 2. **Spark SQL** para limpieza: opcional (ya existe limpieza en Python antes de Cassandra). El resto (Kafka 2 temas, Streaming, Hive, DAG mensual, YARN) está implementado.
 
 ---
@@ -109,4 +109,4 @@ Con la infraestructura actual **sin NiFi**:
 
 - **Se cumple**: ciclo de datos (ingesta script → Kafka/HDFS → Spark → Cassandra + Hive), uso de GraphFrames, persistencia dual, orquestación con Airflow, documentación.
 - **Implementado**: dos temas Kafka (raw/filtrado), Structured Streaming 15 min, enriquecimiento desde Hive, DAG mensual + limpieza HDFS, opción YARN.
-- **Sigue faltando**: **NiFi** en la ingesta (el script Python cubre la lógica; NiFi sería la capa exigida por el enunciado).
+- **NiFi integrado**: Ingesta vía NiFi 2.6.0 (API + logs GPS + ExecuteStreamCommand para producer.py).

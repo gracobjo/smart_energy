@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Atajo: igual que ./scripts/iniciar_servicios.sh
+exec "$(cd "$(dirname "$0")" && pwd)/scripts/iniciar_servicios.sh" "$@"
