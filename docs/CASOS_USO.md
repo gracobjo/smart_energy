@@ -55,7 +55,7 @@
 
 ### CU-02 Arrancar y comprobar servicios
 
-**Descripción:** El operador arranca los servicios base (HDFS, Kafka, Cassandra) y aplica esquemas.
+**Descripción:** El operador arranca los servicios base (HDFS, Kafka, Cassandra, Airflow) y aplica esquemas.
 
 **Actor principal:** Operador
 
@@ -71,9 +71,10 @@
 6. El sistema crea topics energy_raw y weather_raw.
 7. El sistema aplica esquema Cassandra (keyspace smart_grid).
 8. El sistema aplica esquema Hive (si HDFS y spark-sql/hive disponibles).
-9. El sistema muestra el resultado de la comprobación (hdfs_ok, kafka_ok, cassandra_ok, etc.).
+9. El sistema arranca Airflow (api-server en 8080 + scheduler).
+10. El sistema muestra el resultado de la comprobación (hdfs_ok, kafka_ok, cassandra_ok, airflow_ok, etc.).
 
-**Postcondiciones:** Servicios en ejecución; esquemas aplicados.
+**Postcondiciones:** Servicios en ejecución (incl. Airflow UI en http://localhost:8080); esquemas aplicados.
 
 #### Escenario alternativo 3a: HDFS ya responde
 
@@ -229,7 +230,7 @@
 
 **Actor principal:** Operador
 
-**Precondiciones:** Airflow arrancado (api-server + scheduler); DAGs sincronizados.
+**Precondiciones:** Airflow arrancado (api-server + scheduler); DAGs sincronizados. Airflow puede arrancarse desde Fase 0 del dashboard o con `./scripts/iniciar_servicios.sh --only airflow`.
 
 #### Escenario normal
 
@@ -245,7 +246,7 @@
 
 | DAG | Acción |
 |-----|--------|
-| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra |
+| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra, Airflow |
 | dag_comprobar_servicios_smart_grid | Verifica puertos y servicios |
 | dag_parar_servicios_smart_grid | Para HDFS, Kafka, Cassandra, NiFi |
 | dag_kdd_fase1_ingesta_smart_grid | Ejecuta producer.py |
@@ -302,12 +303,12 @@
 | Caso de uso | Requisitos cubiertos |
 |-------------|----------------------|
 | CU-01 | RF-06.1, RF-06.2 |
-| CU-02 | RF-06.3, RF-05.7 |
+| CU-02 | RF-06.3, RF-05.7, RF-07.7 |
 | CU-03 | RF-05.5 |
 | CU-04 | RF-05.1, RF-05.2, RF-05.3, RF-05.4 |
 | CU-05 | RF-05.6 |
 | CU-06 | RF-04.* (verificación) |
-| CU-07 | RF-05.7 |
-| CU-08 | RF-07.1, RF-07.3, RF-07.4, RF-07.5 |
+| CU-07 | RF-05.7, RF-07.7 |
+| CU-08 | RF-07.1, RF-07.3, RF-07.4, RF-07.5, RF-07.7 |
 | CU-09 | RF-07.6 |
 | CU-10 | RF-08.3, RF-09.1, RF-09.2 |

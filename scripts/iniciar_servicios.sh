@@ -1,15 +1,14 @@
 #!/usr/bin/bash
 # Arranca servicios base Smart Grid desde la raíz del repo (equivalente a Fase 0 en el dashboard):
-#   HDFS (opcional), Kafka (KRaft), Cassandra (./cassandra/bin/cassandra).
+#   HDFS, Kafka (KRaft), Cassandra, Airflow (api-server + scheduler).
 #
 # Uso:
 #   cd ~/smart_energy
 #   ./scripts/iniciar_servicios.sh
 #   ./scripts/iniciar_servicios.sh --only cassandra
-#   ./scripts/iniciar_servicios.sh --only hdfs
-#   ./scripts/iniciar_servicios.sh --only kafka
+#   ./scripts/iniciar_servicios.sh --only airflow
 #
-# Variables: HADOOP_HOME (default /opt/hadoop), KAFKA_HOME (default /opt/kafka o $KAFKA_HOME)
+# Variables: HADOOP_HOME, KAFKA_HOME, AIRFLOW_HOME (default ~/airflow)
 set -euo pipefail
 
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,6 +16,7 @@ cd "$BASE"
 
 HADOOP_HOME="${HADOOP_HOME:-/opt/hadoop}"
 KAFKA_HOME="${KAFKA_HOME:-/opt/kafka}"
+AIRFLOW_HOME="${AIRFLOW_HOME:-$HOME/airflow}"
 
 ONLY=""
 while [[ $# -gt 0 ]]; do
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
       shift || true
       ;;
     -h|--help)
-      echo "Uso: $0 [--only hdfs|kafka|cassandra]"
+      echo "Uso: $0 [--only hdfs|kafka|cassandra|airflow]"
       exit 0
       ;;
     *)
@@ -110,6 +110,32 @@ _start_cassandra() {
   echo "Cassandra pid=$! (espera 30–60 s y comprueba: nc -z 127.0.0.1 9042)"
 }
 
+_start_airflow() {
+  if _port_open 8080; then
+    echo "=== Airflow: ya responde en 8080 ==="
+    return 0
+  fi
+  export AIRFLOW_HOME
+  local airflow_bin=""
+  for venv in "$BASE/venv/bin/airflow" "$BASE/venv_transporte/bin/airflow" "$(command -v airflow 2>/dev/null)"; do
+    [[ -x "${venv:-}" ]] && airflow_bin="$venv" && break
+  done
+  if [[ -z "$airflow_bin" ]]; then
+    echo "AVISO: No encuentro airflow (venv, venv_transporte). Instala: pip install apache-airflow" >&2
+    return 1
+  fi
+  echo "=== Airflow: arrancando (api-server + scheduler) ==="
+  local log_api="/tmp/smart_grid_airflow_api.log"
+  local log_sched="/tmp/smart_grid_airflow_scheduler.log"
+  nohup "$airflow_bin" api-server -H 0.0.0.0 -p 8080 >>"$log_api" 2>&1 &
+  echo "  api-server pid=$!"
+  sleep 3
+  nohup "$airflow_bin" scheduler >>"$log_sched" 2>&1 &
+  echo "  scheduler pid=$!"
+  echo "    Logs: $log_api, $log_sched"
+  echo "    UI: http://localhost:8080 (admin/admin)"
+}
+
 if _should_run hdfs; then
   _start_hdfs
 fi
@@ -118,6 +144,9 @@ if _should_run kafka; then
 fi
 if _should_run cassandra; then
   _start_cassandra
+fi
+if _should_run airflow; then
+  _start_airflow
 fi
 
 # Calentar catálogo Hive en background (JVM/metastore) para que el dashboard no falle por timeout
@@ -143,5 +172,6 @@ fi
 echo ""
 echo "Directorio de trabajo: $BASE"
 echo "Esquema Cassandra (cuando 9042 responda): cqlsh -f cassandra/esquema_smart_grid.cql"
+echo "Airflow UI: http://localhost:8080 (ver docs/CREDENCIALES_UI.md)"
 echo ""
 echo "Para tener cqlsh, hive, spark-sql en el PATH: source $BASE/scripts/env_smart_grid.sh"

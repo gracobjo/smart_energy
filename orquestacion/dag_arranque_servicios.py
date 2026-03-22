@@ -1,6 +1,6 @@
 """
 DAG arrancar servicios Smart Grid. Reutiliza scripts/iniciar_servicios.sh.
-HDFS, Kafka (KRaft), Cassandra, calentamiento Hive.
+HDFS, Kafka (KRaft), Cassandra, Airflow, calentamiento Hive.
 Ejecución: manual (Trigger DAG).
 """
 import os
@@ -27,7 +27,7 @@ default_args = {
 with DAG(
     dag_id="dag_arranque_servicios_smart_grid",
     default_args=default_args,
-    description="Arrancar HDFS, Kafka, Cassandra (usa scripts/iniciar_servicios.sh)",
+    description="Arrancar HDFS, Kafka, Cassandra, Airflow (usa scripts/iniciar_servicios.sh)",
     schedule=None,
     start_date=datetime(2026, 1, 1),
     catchup=False,

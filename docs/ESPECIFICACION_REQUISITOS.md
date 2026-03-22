@@ -75,6 +75,7 @@ Sistema de **monitoreo de redes de energía inteligentes** para España, basado 
 | RF-07.4 | El sistema debe disponer de DAGs por fase KDD (ingesta, procesamiento, validación) | Media |
 | RF-07.5 | El sistema debe disponer de DAG de consultas a Hive y Cassandra | Baja |
 | RF-07.6 | El sistema debe disponer de DAG de informes consolidados de todas las fases | Media |
+| RF-07.7 | El sistema debe incluir Airflow en el entorno de arranque integrado (iniciar_servicios.sh, Fase 0 del dashboard, parar_servicios.sh) | Media |
 
 ### RF-08 Ingesta alternativa (NiFi)
 

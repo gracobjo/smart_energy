@@ -156,6 +156,7 @@
 4. Creación de topics Kafka.
 5. Aplicación de esquema Cassandra.
 6. Aplicación de esquema Hive (setup_hive.hql).
+7. Airflow (api-server en 8080 + scheduler).
 
 ---
 
@@ -183,8 +184,8 @@
 
 | Script | Función |
 |--------|---------|
-| scripts/iniciar_servicios.sh | Arranque HDFS, Kafka, Cassandra, calentamiento Hive |
-| scripts/parar_servicios.sh | Parada HDFS, Kafka, Cassandra, NiFi |
+| scripts/iniciar_servicios.sh | Arranque HDFS, Kafka, Cassandra, Airflow, calentamiento Hive (opción --only airflow) |
+| scripts/parar_servicios.sh | Parada HDFS, Kafka, Cassandra, NiFi, Airflow (opción --only airflow) |
 | scripts/comprobar_servicios.sh | Verificación de puertos y CLI |
 | scripts/generar_informe_fases.py | Informe consolidado de todas las fases KDD |
 | scripts/nifi_crear_flujo_fase1.py | Crear procesadores NiFi vía API |
@@ -201,7 +202,7 @@
 
 | DAG | Función |
 |-----|---------|
-| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra |
+| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra, Airflow |
 | dag_comprobar_servicios_smart_grid | Verifica servicios |
 | dag_parar_servicios_smart_grid | Para servicios |
 | dag_kdd_fase1_ingesta_smart_grid | Ejecuta producer.py |

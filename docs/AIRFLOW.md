@@ -6,6 +6,22 @@ Documentación de cómo arrancar Apache Airflow en este proyecto y qué hace cad
 
 ## Cómo arrancar Airflow
 
+### Arranque integrado (recomendado)
+
+Airflow forma parte del entorno de ejecución. Para arrancarlo junto al resto de servicios:
+
+```bash
+cd ~/smart_energy
+./scripts/iniciar_servicios.sh          # arranca HDFS, Kafka, Cassandra, Airflow
+./scripts/iniciar_servicios.sh --only airflow   # solo Airflow
+```
+
+Para parar Airflow: `./scripts/parar_servicios.sh --only airflow`.
+
+También puedes arrancar todo desde el **dashboard** (Fase 0 → Arrancar servicios) o desde el DAG `dag_arranque_servicios_smart_grid`.
+
+### Arranque manual
+
 En este proyecto Airflow está instalado en el **entorno virtual** del proyecto. Hay que levantar **dos procesos**: el servidor de API (interfaz web + API para los workers) y el scheduler.
 
 ### Requisitos previos
@@ -99,7 +115,7 @@ Estos DAGs están en la carpeta **`orquestacion/`** del proyecto. Para que Airfl
 
 ### 5. `dag_parar_servicios_smart_grid` (`dag_parar_servicios.py`)
 
-- Ejecuta `scripts/parar_servicios.sh`: para HDFS, Kafka, Cassandra, NiFi.
+- Ejecuta `scripts/parar_servicios.sh`: para HDFS, Kafka, Cassandra, NiFi, Airflow.
 - Manual (al cerrar demo).
 
 ### 6. DAGs KDD (por fase)

@@ -393,6 +393,49 @@ def _start_kafka() -> Tuple[bool, str]:
         return False, f"Error arrancando Kafka: {e}"
 
 
+def _start_airflow() -> Tuple[bool, str]:
+    """Arranca Airflow (api-server en 8080 + scheduler)."""
+    if _port_open("127.0.0.1", 8080):
+        return True, "Airflow ya responde en 8080."
+    airflow_bin = None
+    for venv_path in [BASE / "venv" / "bin" / "airflow", BASE / "venv_transporte" / "bin" / "airflow"]:
+        if venv_path.exists():
+            airflow_bin = str(venv_path)
+            break
+    if not airflow_bin:
+        try:
+            r = subprocess.run(["which", "airflow"], capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                airflow_bin = r.stdout.strip()
+        except Exception:
+            pass
+    if not airflow_bin:
+        return False, "Airflow no encontrado (venv, venv_transporte). pip install apache-airflow"
+    env = os.environ.copy()
+    env["AIRFLOW_HOME"] = env.get("AIRFLOW_HOME", str(Path.home() / "airflow"))
+    log_api = Path("/tmp/smart_grid_airflow_api.log")
+    log_sched = Path("/tmp/smart_grid_airflow_scheduler.log")
+    try:
+        with log_api.open("a", encoding="utf-8") as f:
+            p1 = subprocess.Popen(
+                [airflow_bin, "api-server", "-H", "0.0.0.0", "-p", "8080"],
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+        time.sleep(2)
+        with log_sched.open("a", encoding="utf-8") as f:
+            p2 = subprocess.Popen(
+                [airflow_bin, "scheduler"],
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+        return True, f"Airflow arrancado (api={p1.pid}, scheduler={p2.pid}). UI: http://localhost:8080"
+    except Exception as e:
+        return False, f"Error arrancando Airflow: {e}"
+
+
 def _stop_hdfs() -> Tuple[bool, str]:
     try:
         r = _safe_run(["/opt/hadoop/sbin/stop-all.sh"], timeout_s=120)
@@ -426,6 +469,15 @@ def _stop_cassandra() -> Tuple[bool, str]:
         return False, f"Error parando Cassandra: {e}"
 
 
+def _stop_airflow() -> Tuple[bool, str]:
+    try:
+        for proc in ["airflow api-server", "airflow scheduler", "airflow webserver"]:
+            subprocess.run(["pkill", "-f", proc], capture_output=True)
+        return True, "Airflow parado (api-server, scheduler, webserver)."
+    except Exception as e:
+        return False, f"Error parando Airflow: {e}"
+
+
 def _hive_catalog_db_in_show_databases_output(text: str, db: str) -> bool:
     """
     Comprueba si el nombre de base aparece en la salida de SHOW DATABASES
@@ -457,6 +509,7 @@ def _comprobar_servicios_base() -> Dict[str, Any]:
 
     kafka_ok = _port_open("127.0.0.1", 9092)
     cassandra_ok = _port_open("127.0.0.1", 9042)
+    airflow_ok = _port_open("127.0.0.1", 8080)
 
     ks_ok = _cassandra_keyspace_exists(CASSANDRA_HOST)
     topics_ok, topics = _kafka_topics_exist(KAFKA_BOOTSTRAP)
@@ -501,6 +554,7 @@ def _comprobar_servicios_base() -> Dict[str, Any]:
         "hdfs_ok": hdfs_ok,
         "kafka_ok": kafka_ok,
         "cassandra_ok": cassandra_ok,
+        "airflow_ok": airflow_ok,
         "keyspace_ok": ks_ok,
         "topics_ok": topics_ok,
         "topics": topics,
@@ -551,6 +605,11 @@ def _fase0_arrancar_servicios() -> Dict[str, Any]:
     out["orden"].append("6) Esquema Hive (setup_hive.hql)")
     ok, msg = _aplicar_esquema_hive_if_needed()
     out["resultados"]["esquema_hive"] = {"ok": ok, "msg": msg}
+
+    # 7) Airflow (api-server + scheduler)
+    out["orden"].append("7) Airflow (api-server + scheduler)")
+    ok, msg = _start_airflow()
+    out["resultados"]["airflow_start"] = {"ok": ok, "msg": msg}
 
     out["check_final"] = _comprobar_servicios_base()
     return out
@@ -1026,6 +1085,8 @@ def _fase0_parar_servicios() -> Dict[str, Any]:
     out["resultados"]["kafka_stop"] = {"ok": ok, "msg": msg}
     ok, msg = _stop_cassandra()
     out["resultados"]["cassandra_stop"] = {"ok": ok, "msg": msg}
+    ok, msg = _stop_airflow()
+    out["resultados"]["airflow_stop"] = {"ok": ok, "msg": msg}
     out["check_final"] = _comprobar_servicios_base()
     return out
 
@@ -2203,7 +2264,7 @@ def main():
         )
         st.markdown(
             "Qué incluye el arranque automático: **HDFS** → **Kafka** → **Cassandra** → **topics** → "
-            f"**keyspace `{KEYSPACE}`** → **Hive `{HIVE_DB}`** (`setup_hive.hql`, si HDFS + `spark-sql`/`hive` están disponibles)."
+            f"**keyspace `{KEYSPACE}`** → **Hive `{HIVE_DB}`** → **Airflow** (api-server 8080, scheduler)."
         )
         st.info(
             "**Equivalente en terminal:** `cd ~/smart_energy && ./scripts/iniciar_servicios.sh` "
@@ -2212,7 +2273,7 @@ def main():
 
         st.markdown("##### Paso 1 — Arrancar")
         if st.button("▶ Arrancar servicios (completo)", type="primary", use_container_width=True, key="fase0_btn_arrancar"):
-            with st.spinner("Arrancando HDFS → Kafka → Cassandra → topics → esquemas..."):
+            with st.spinner("Arrancando HDFS → Kafka → Cassandra → topics → esquemas → Airflow..."):
                 res = _fase0_arrancar_servicios()
             st.session_state["fase0_check"] = res.get("check_final", {})
             st.success("Arranque lanzado. Comprobación al vuelo:")
@@ -2240,14 +2301,15 @@ def main():
 
         _chk = st.session_state.get("fase0_check") or {}
         if _chk:
-            c0, c1, c2, c3 = st.columns(4)
+            c0, c1, c2, c3, c4 = st.columns(5)
             c0.metric("HDFS", "✓" if _chk.get("hdfs_ok") else "✗")
             c1.metric("Kafka:9092", "✓" if _chk.get("kafka_ok") else "✗")
             c2.metric("Cassandra", "✓" if _chk.get("cassandra_ok") else "✗")
-            c3.metric("Keyspace", "✓" if _chk.get("keyspace_ok") else "✗")
-            c4, c5 = st.columns(2)
-            c4.metric("Topics Kafka", "✓" if _chk.get("topics_ok") else "✗")
-            c5.metric("Catálogo Hive", "✓" if _chk.get("hive_catalog_ok") else ("—" if not _chk.get("hive_cli_available") else "✗"))
+            c3.metric("Airflow:8080", "✓" if _chk.get("airflow_ok") else "✗")
+            c4.metric("Keyspace", "✓" if _chk.get("keyspace_ok") else "✗")
+            c5, c6 = st.columns(2)
+            c5.metric("Topics Kafka", "✓" if _chk.get("topics_ok") else "✗")
+            c6.metric("Catálogo Hive", "✓" if _chk.get("hive_catalog_ok") else ("—" if not _chk.get("hive_cli_available") else "✗"))
 
         if not _chk.get("cassandra_ok", True):
             with st.expander("Si Cassandra no arranca — qué hacer", expanded=True):

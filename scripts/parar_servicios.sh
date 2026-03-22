@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Para servicios base Smart Grid.
-# Uso: ./scripts/parar_servicios.sh [--only hdfs|kafka|cassandra|nifi]
+# Uso: ./scripts/parar_servicios.sh [--only hdfs|kafka|cassandra|nifi|airflow]
 set -euo pipefail
 
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,7 +11,7 @@ ONLY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --only) shift; ONLY="${1:-}"; shift || true ;;
-    -h|--help) echo "Uso: $0 [--only hdfs|kafka|cassandra|nifi]"; exit 0 ;;
+    -h|--help) echo "Uso: $0 [--only hdfs|kafka|cassandra|nifi|airflow]"; exit 0 ;;
     *) echo "Opción desconocida: $1" >&2; exit 1 ;;
   esac
 done
@@ -58,9 +58,20 @@ _stop_nifi() {
   fi
 }
 
+_stop_airflow() {
+  if _should_run airflow; then
+    echo "=== Parando Airflow ==="
+    pkill -f "airflow api-server" 2>/dev/null || true
+    pkill -f "airflow scheduler" 2>/dev/null || true
+    pkill -f "airflow webserver" 2>/dev/null || true
+    echo "Airflow parado (api-server, scheduler, webserver)."
+  fi
+}
+
 _stop_hdfs
 _stop_kafka
 _stop_cassandra
 _stop_nifi
+_stop_airflow
 echo ""
 echo "Servicios parados."

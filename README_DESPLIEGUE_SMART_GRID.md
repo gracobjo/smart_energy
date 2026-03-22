@@ -8,12 +8,13 @@ Ruta del proyecto: ajusta `cd` a tu clon (p. ej. `~/smart_energy`).
 
 ## Cassandra
 
-Arranque integrado con el resto del stack (HDFS + Kafka + Cassandra desde la raíz del repo):
+Arranque integrado con el resto del stack (HDFS + Kafka + Cassandra + Airflow desde la raíz del repo):
 
 ```bash
 cd ~/smart_energy
 ./iniciar_servicios              # o: ./scripts/iniciar_servicios.sh
-./iniciar_servicios --only cassandra   # solo Cassandra (equivalente a lo de abajo)
+./scripts/iniciar_servicios.sh --only cassandra   # solo Cassandra
+./scripts/iniciar_servicios.sh --only airflow     # solo Airflow (api-server + scheduler)
 ```
 
 Solo Cassandra (manual):
@@ -78,11 +79,11 @@ streamlit run app_visualizacion.py
 
 ## Airflow
 
-Copiar `orquestacion/dag_maestro.py`, `dag_arranque_servicios.py`, `dag_mensual_retrain_limpieza.py` al directorio `dags/` de Airflow.
+Airflow está integrado en el entorno de ejecución: `./scripts/iniciar_servicios.sh` arranca el api-server (puerto 8080) y el scheduler. Para pararlo: `./scripts/parar_servicios.sh --only airflow`.
 
-En `airflow.cfg`: `dags_folder` apuntando a la carpeta que contiene esos DAGs (o enlace a `orquestacion/`).
+Copiar DAGs de `orquestacion/` al directorio `dags/` de Airflow (o usar `./scripts/sync_dags_airflow.sh`).
 
-Ver **[docs/AIRFLOW.md](docs/AIRFLOW.md)** (actualizar rutas a `smart_energy` si aplica).
+Ver **[docs/AIRFLOW.md](docs/AIRFLOW.md)** y **[docs/CREDENCIALES_UI.md](docs/CREDENCIALES_UI.md)** (credenciales admin/admin).
 
 ---
 
