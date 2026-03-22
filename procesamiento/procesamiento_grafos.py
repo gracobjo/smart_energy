@@ -21,13 +21,17 @@ from graphframes import GraphFrame
 from config_nodos import get_nodos, get_aristas
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from grafo_puntos_fallo import analizar_puntos_fallo_unicos
+from persistencia_hive import ejecutar_persistencia_hive
 from config import (
     JAR_GRAPHFRAMES,
     JAR_CASSANDRA,
     CASSANDRA_HOST,
     KEYSPACE,
     HDFS_BACKUP_PATH,
+    HDFS_DEFAULT_FS,
     HIVE_DB,
+    SPARK_EVENT_LOG_DIR,
+    SPARK_EVENT_LOG_HDFS_REL,
 )
 
 # Estados: sobrecarga se excluye del grafo; alerta penaliza peso
@@ -51,7 +55,11 @@ def crear_spark():
         .config("spark.cassandra.connection.keepAliveMS", "30000")
         .config("spark.jars", f"{JAR_GRAPHFRAMES},{JAR_CASSANDRA}")
         .config("spark.jars.packages", "com.datastax.spark:spark-cassandra-connector_2.12:3.5.0")
-        .config("spark.eventLog.enabled", "false")
+        # Event log explícito: con `python script.py` a veces no se cargan spark-defaults.conf
+        .config("spark.eventLog.enabled", "true")
+        .config("spark.eventLog.dir", SPARK_EVENT_LOG_DIR)
+        .config("spark.eventLog.compress", "true")
+        .config("spark.hadoop.fs.defaultFS", HDFS_DEFAULT_FS)
         .config("spark.hadoop.dfs.client.use.datanode.hostname", "false")
         .enableHiveSupport()
         .getOrCreate()
@@ -235,13 +243,23 @@ def procesar_y_persistir(spark, subestaciones, lineas, clima_map):
     except Exception as ex:
         print(f"[PUNTOS_FALLO] {ex}")
 
-    # Hive opcional: histórico
+    # Hive: histórico (subestaciones, líneas, clima, consumo diario, métricas PageRank)
     try:
-        spark.sql(f"CREATE DATABASE IF NOT EXISTS {HIVE_DB}")
-        spark.sql(f"USE {HIVE_DB}")
-        df_sub.withColumn("fecha_proceso", current_timestamp()).write.format("hive").mode("append").saveAsTable(f"{HIVE_DB}.historico_subestaciones")
+        clima_list = list(clima_map.values()) if clima_map else []
+        datos_hive = {
+            "timestamp": now.isoformat(),
+            "subestaciones": subestaciones,
+            "lineas": lineas,
+            "clima": clima_list,
+        }
+        ejecutar_persistencia_hive(
+            spark,
+            datos_hive,
+            pagerank_df=pagerank_df,
+            df_subestaciones=df_sub,
+        )
     except Exception as e:
-        print(f"[HIVE] Opcional: {e}")
+        print(f"[HIVE] {e}")
 
     return g, pagerank_df
 
@@ -267,6 +285,11 @@ def main():
         sys.exit(1)
     try:
         subprocess.run(["hdfs", "dfs", "-mkdir", "-p", HDFS_BACKUP_PATH], capture_output=True, timeout=30)
+        subprocess.run(
+            ["hdfs", "dfs", "-mkdir", "-p", SPARK_EVENT_LOG_HDFS_REL],
+            capture_output=True,
+            timeout=30,
+        )
     except Exception:
         pass
 

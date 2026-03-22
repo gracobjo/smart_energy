@@ -1,0 +1,40 @@
+# Kafka + Kafdrop para Smart Grid (Bitnami - más estable)
+# Uso: docker compose -f docker/docker-compose-kafka.yml up -d
+services:
+  kafka:
+    image: docker.io/bitnami/kafka:3.8
+    container_name: smartgrid-kafka
+    ports:
+      - "9092:9094"   # host 9092 -> EXTERNAL 9094 (acceso desde host)
+      - "9093:9093"   # controller
+    volumes:
+      - kafka_data:/bitnami
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      # Interno kafka:9092 para Kafdrop, externo localhost:9092 para host
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: smartgrid-kafdrop
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+
+volumes:
+  kafka_data:
+    driver: local

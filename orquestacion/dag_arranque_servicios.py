@@ -62,13 +62,11 @@ def arrancar_kafka(**context):
     import subprocess
     kafka_home = Path(os.environ.get("KAFKA_HOME", "/opt/kafka"))
     start_script = kafka_home / "bin" / "kafka-server-start.sh"
-    config = kafka_home / "config" / "server.properties"
     if not start_script.exists():
-        config_kraft = kafka_home / "config" / "kraft" / "server.properties"
-        if config_kraft.exists():
-            config = config_kraft
-        else:
-            raise RuntimeError(f"Kafka no encontrado en {kafka_home}. Configura KAFKA_HOME.")
+        raise RuntimeError(f"Kafka no encontrado en {kafka_home}. Ejecuta: ./scripts/instalar_kafka_local.sh")
+    config = kafka_home / "config" / "kraft" / "server.properties"
+    if not config.exists():
+        config = kafka_home / "config" / "server.properties"
     subprocess.Popen(
         [str(start_script), str(config)],
         cwd=str(kafka_home),

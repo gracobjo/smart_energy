@@ -5,6 +5,9 @@ __pycache__/
 *.py[cod]
 .Python
 .env
+.env.local
+.env.*.local
+# Claves API (OPENWEATHER, ELECTRICITY_MAPS, etc.) → usar .env, nunca commitear
 *.egg-info/
 
 # Binarios y descargas grandes (no subir al repo)
@@ -13,8 +16,10 @@ __pycache__/
 *.jar
 *.jar.1
 
-# NiFi / Hive embebidos locales
+# NiFi (instalado por scripts/instalar_nifi_260.sh)
 nifi-2.0.0/
+nifi-2.6.0/
+nifi-*-bin.zip
 hive/
 
 # Cassandra: solo esquemas CQL en raíz de carpeta; instancia completa fuera

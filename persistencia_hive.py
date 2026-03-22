@@ -15,6 +15,8 @@ TABLA_SUBESTACIONES = "subestaciones_historico"
 TABLA_LINEAS = "lineas_historico"
 TABLA_CLIMA = "clima_historico"
 TABLA_CONSUMO_DIARIO = "consumo_energetico_diario"
+# Alineado con setup_hive.hql — PageRank + estado eléctrico
+TABLA_METRICAS_SUB = "metricas_subestaciones_hist"
 
 
 def crear_spark_hive(app_name: str = "HivePersistenceSmartGrid") -> SparkSession:
@@ -134,6 +136,39 @@ def inicializar_esquema_hive(spark: SparkSession) -> None:
         STORED AS parquet
     """)
 
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {TABLA_METRICAS_SUB} (
+            id_subestacion STRING,
+            pagerank_score FLOAT,
+            voltaje_kv FLOAT,
+            potencia_mw FLOAT,
+            fecha_proceso TIMESTAMP
+        )
+        STORED AS PARQUET
+    """)
+
+
+def persistir_metricas_pagerank_hive(spark, pagerank_df, df_sub) -> None:
+    """Escribe PageRank + voltaje/potencia en Hive (histórico de métricas de grafo)."""
+    from pyspark.sql.functions import col as Fcol, current_timestamp
+
+    spark.sql(f"USE {HIVE_DB}")
+    j = pagerank_df.alias("pr").join(
+        df_sub.select(Fcol("id_subestacion").alias("sid"), "voltaje_kv", "potencia_mw"),
+        Fcol("pr.id") == Fcol("sid"),
+        "inner",
+    )
+    out = j.select(
+        Fcol("pr.id").alias("id_subestacion"),
+        Fcol("pagerank_val").alias("pagerank_score"),
+        Fcol("voltaje_kv"),
+        Fcol("potencia_mw"),
+        current_timestamp().alias("fecha_proceso"),
+    )
+    if not out.limit(1).take(1):
+        return
+    out.write.mode("append").insertInto(f"{HIVE_DB}.{TABLA_METRICAS_SUB}")
+
 
 def persistir_subestaciones_historico(spark: SparkSession, datos: Dict) -> None:
     ts = datos.get("timestamp", datetime.now().isoformat())
@@ -229,11 +264,21 @@ def calcular_consumo_diario(spark: SparkSession) -> None:
     """)
 
 
-def ejecutar_persistencia_hive(spark: SparkSession, datos: Dict) -> None:
+def ejecutar_persistencia_hive(
+    spark: SparkSession,
+    datos: Dict,
+    pagerank_df=None,
+    df_subestaciones=None,
+) -> None:
     inicializar_esquema_hive(spark)
     persistir_subestaciones_historico(spark, datos)
     persistir_lineas_historico(spark, datos)
     persistir_clima_historico(spark, datos)
+    if pagerank_df is not None and df_subestaciones is not None:
+        try:
+            persistir_metricas_pagerank_hive(spark, pagerank_df, df_subestaciones)
+        except Exception as e:
+            print(f"[HIVE] métricas PageRank: {e}")
     try:
         calcular_consumo_diario(spark)
     except Exception as e:

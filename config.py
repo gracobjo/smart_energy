@@ -34,10 +34,12 @@ API_WEATHER_BASE = "https://api.openweathermap.org/data/2.5/weather"
 ELECTRICITY_MAPS_API_KEY = os.environ.get("ELECTRICITY_MAPS_API_KEY", "")
 ELECTRICITY_MAPS_ZONE = os.environ.get("ELECTRICITY_MAPS_ZONE", "ES")
 
-# Kafka 3.9.1 (KRaft)
+# Kafka 3.9.x (KRaft)
+KAFKA_HOME = os.environ.get("KAFKA_HOME", "/opt/kafka")
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092")
 TOPIC_RAW = "energy_raw"              # Carga y voltaje por subestación (+ líneas para grafos)
 TOPIC_WEATHER_RAW = "weather_raw"     # Clima en zonas solares/eólicas
+TOPIC_GPS_RAW = "gps_raw"             # Logs GPS (NiFi GetFile)
 TOPIC_FILTERED = "energy_filtered"
 TOPIC_ENERGY = TOPIC_FILTERED
 
@@ -47,6 +49,16 @@ KEYSPACE = "smart_grid"
 
 # HDFS - Backup para batch y re-entrenamiento
 HDFS_BACKUP_PATH = "/user/hadoop/energy_backup"
+# Spark History Server: event logs en HDFS (debe coincidir con spark.history.fs.logDirectory)
+HDFS_DEFAULT_FS = os.environ.get("HDFS_DEFAULT_FS", "hdfs://nodo1:9000")
+SPARK_EVENT_LOG_DIR = os.environ.get("SPARK_EVENT_LOG_DIR", f"{HDFS_DEFAULT_FS}/spark-logs")
+SPARK_EVENT_LOG_HDFS_REL = os.environ.get("SPARK_EVENT_LOG_HDFS_REL", "/spark-logs")
 
-# Hive - Histórico y reportes de consumo energético diario
+# NiFi - Ingesta (API + logs GPS); ver scripts/instalar_nifi_260.sh
+NIFI_HOME = os.environ.get("NIFI_HOME", os.path.join(BASE_PATH, "nifi-2.6.0"))
+NIFI_GPS_LOGS_DIR = os.environ.get("NIFI_GPS_LOGS_DIR", os.path.join(BASE_PATH, "data", "gps_logs"))
+
+# Hive - Histórico y reportes (Hive 4.x + Java 21; ver scripts/instalar_hive_java21.sh)
 HIVE_DB = "smart_grid_analytics"
+HIVE_HOME = os.environ.get("HIVE_HOME", os.path.expanduser("~/apache-hive-4.2.0-bin"))
+SPARK_HOME = os.environ.get("SPARK_HOME", "/opt/spark")

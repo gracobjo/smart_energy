@@ -12,7 +12,8 @@ Sistema **Big Data** basado en el ciclo **KDD** y arquitectura **Lambda/Kappa**:
 | **Procesamiento** | Grafos: subestaciones y líneas; **puntos de fallo únicos** (articulación); PageRank; persistencia Cassandra. |
 | **Streaming** | Ventanas **15 min**: carga media de la red, picos de demanda (`streaming_ventanas_15min.py`). |
 | **Hive** | Consumo, líneas, **sostenibilidad** (`sostenibilidad_carbono_hist`), **clima renovables** (`clima_renovables_hist`). |
-| **Dashboard** | Streamlit: mapa, voltaje/potencia, alertas, PageRank. |
+| **Dashboard** | Streamlit: mapa, voltaje/potencia, alertas, PageRank, cuadro de mando. |
+| **NiFi** | Ingesta alternativa: APIs (OpenWeather), ExecuteStreamCommand (producer.py), logs GPS → Kafka. Ver `docs/NIFI_INTEGRACION.md`. |
 | **Airflow** | DAG maestro (ingesta + batch), mensual (limpieza HDFS, grafos, modelo respaldo). |
 
 **APIs:** ver **[docs/API_INTEGRACION.md](docs/API_INTEGRACION.md)** (Electricity Maps + OpenWeather).
@@ -95,6 +96,7 @@ python procesamiento/persistir_hive_ingesta.py --energy /tmp/smart_grid_last_ene
 | [docs/DISENO.md](docs/DISENO.md) | Diseño del sistema, arquitectura, modelo de datos |
 | [docs/CASOS_USO.md](docs/CASOS_USO.md) | Casos de uso con escenarios normales y alternativos |
 | [docs/DIAGRAMAS_UML.md](docs/DIAGRAMAS_UML.md) | Diagramas UML (Mermaid): casos de uso, secuencia, componentes, etc. |
+| [docs/NIFI_INTEGRACION.md](docs/NIFI_INTEGRACION.md) | NiFi 2.6.0: instalación, flujos, API + GPS |
 | [docs/API_INTEGRACION.md](docs/API_INTEGRACION.md) | Electricity Maps y OpenWeather |
 | [README_DESPLIEGUE_SMART_GRID.md](README_DESPLIEGUE_SMART_GRID.md) | Servicios, Cassandra, Kafka, troubleshooting |
 | [docs/AIRFLOW.md](docs/AIRFLOW.md) | DAGs y carpeta `dags` |

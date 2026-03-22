@@ -308,3 +308,15 @@ fi
 MAX_HEAP_SIZE="512M"
 HEAP_NEWSIZE="100M"
 JVM_OPTS="$JVM_OPTS --add-opens java.base/java.io=ALL-UNNAMED"
+
+# --- smart_energy: Cassandra 4.x + Java 21 ---
+# Java 21 elimina SecurityManager; Cassandra 4.x llama setSecurityManager() → falla el arranque.
+# cassandra.in.sh ya fijó $JAVA desde PATH; hay que sobrescribirlo si solo hay Java 21 en el sistema.
+for _jdk in /usr/lib/jvm/java-17-openjdk-amd64 /usr/lib/jvm/java-17-openjdk /usr/lib/jvm/java-11-openjdk-amd64; do
+  if [ -x "${_jdk}/bin/java" ]; then
+    export JAVA_HOME="${_jdk}"
+    JAVA="${_jdk}/bin/java"
+    export JAVA
+    break
+  fi
+done
