@@ -44,6 +44,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 | GET | `/api/v1/pagerank` | PageRank por subestación (nodos críticos) |
 | GET | `/api/v1/puntos-fallo` | Puntos de fallo únicos (articulaciones) |
 | GET | `/api/v1/red` | Vista consolidada (subestaciones + líneas + PageRank + puntos de fallo) |
+| GET | `/api/v1/riesgo-apagon` | **Riesgo de apagón**: `risk_score`, alerta crítica, desglose (opc. `?frecuencia_hz=`) |
 
 ---
 

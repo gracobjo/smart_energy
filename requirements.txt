@@ -24,3 +24,6 @@ apache-airflow>=2.6.0
 # PySpark 3.5 (debe coincidir con Spark en /opt/spark y JAR GraphFrames 3.5)
 pyspark>=3.5.0,<4.0
 graphframes
+
+# Tests
+pytest>=7.0.0

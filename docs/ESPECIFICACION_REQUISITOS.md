@@ -93,6 +93,30 @@ Sistema de **monitoreo de redes de energía inteligentes** para España, basado 
 | RF-09.2 | El sistema debe documentar credenciales de acceso a las UIs | Baja |
 | RF-09.3 | El sistema debe incluir la API Swagger en arranque, comprobación y parada de servicios (Fase 0, scripts) | Media |
 
+### RF-10 Pipeline streaming (PySpark)
+
+| ID | Descripción | Prioridad |
+|----|-------------|-----------|
+| RF-10.1 | El sistema debe permitir limpieza de lecturas inválidas antes de agregación | Media |
+| RF-10.2 | El sistema debe enriquecer lecturas con catálogo maestro (JOIN) | Media |
+| RF-10.3 | El sistema debe detectar anomalías: sobrecarga eléctrica y alerta por temperatura | Media |
+| RF-10.4 | El sistema debe calcular métricas en ventanas temporales con watermark | Media |
+| RF-10.5 | El sistema debe disponer de tests automatizados (pytest + PySpark) y documentación técnica | Media |
+| RF-10.6 | El sistema debe exponer en el frontend la documentación y el flujo de QA del pipeline streaming | Baja |
+
+**Detalle:** ver **[STREAMING_PYSPARK_QA.md](STREAMING_PYSPARK_QA.md)**.
+
+### RF-11 Riesgo de apagón eléctrico
+
+| ID | Descripción | Prioridad |
+|----|-------------|-----------|
+| RF-11.1 | El sistema debe calcular un **risk_score** (0–100) agregando tensión, frecuencia (opcional), margen de generación y riesgo de cascada | Media |
+| RF-11.2 | El sistema debe generar **alerta crítica** cuando el score supere un umbral configurable | Media |
+| RF-11.3 | El sistema debe documentar el enfoque respecto al **evento eléctrico en España (2025)** | Baja |
+| RF-11.4 | El sistema debe exponer el riesgo en **API** y **dashboard** | Media |
+
+**Caso de referencia:** **[APAGON_ESPANA_2025_CASO.md](APAGON_ESPANA_2025_CASO.md)**.
+
 ---
 
 ## 3. Requisitos No Funcionales
@@ -138,7 +162,7 @@ Sistema de **monitoreo de redes de energía inteligentes** para España, basado 
 
 | ID | Descripción | Criterio |
 |----|-------------|----------|
-| RNF-06.1 | Interfaz intuitiva | Tabs ordenados: Cuadro de mando, Entorno, Ingesta, Procesamiento, Validación |
+| RNF-06.1 | Interfaz intuitiva | Tabs ordenados: Cuadro de mando, Entorno, Ingesta, Procesamiento, Validación, Streaming & QA |
 | RNF-06.2 | Feedback visual | Spinners, mensajes de éxito/error, métricas |
 | RNF-06.3 | Comprobación de servicios | Indicadores ✓/✗ por servicio |
 
@@ -160,3 +184,5 @@ Sistema de **monitoreo de redes de energía inteligentes** para España, basado 
 | Articulación | Nodo cuya eliminación desconecta el grafo |
 | Lambda/Kappa | Arquitecturas de procesamiento batch + streaming |
 | Smart Grid | Red eléctrica inteligente con telemetría y control |
+| Watermark | Límite temporal en Spark Streaming para descartar eventos demasiado tardíos |
+| Structured Streaming | API Spark para procesamiento incremental con checkpoint |

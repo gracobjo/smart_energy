@@ -2302,16 +2302,17 @@ def main():
     # =========================
     st.subheader("Demostración KDD (fases y verificación)")
     st.caption(
-        "**Orden:** pestaña **0** (levantar → comprobar → parar) → **1** → **2** → **3**. "
+        "**Orden:** pestaña **0** (levantar → comprobar → parar) → **1** → **2** → **3** → **Streaming & QA**. "
         "Abajo, **Monitorización** agrupa enlaces y exploradores. El **mapa** está al final de la página."
     )
-    tab0, tab1, tab2, tab3, tab4 = st.tabs(
+    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(
         [
             "📊 Cuadro de mando",
             "0 · Entorno (servicios)",
             "1 · Ingesta",
             "2 · Procesamiento",
             "3 · Validación",
+            "📡 Streaming & QA",
         ]
     )
 
@@ -2572,6 +2573,12 @@ def main():
                 _cluster_cassandra.clear()
                 st.rerun()
 
+    with tab5:
+        import importlib
+
+        _streaming_qa = importlib.import_module("app_streaming_qa_panel")
+        _streaming_qa.render_streaming_qa_panel()
+
     with st.expander(
         "🛠 Monitorización y herramientas (enlaces ordenados, Hive, Kafka, consultas KDD)",
         expanded=False,
@@ -2627,6 +2634,11 @@ def main():
     c2.metric("Potencia total (MW)", f"{pot_total:,.0f}")
     c3.metric("Alertas", n_alert, delta=None if n_alert == 0 else "revisar")
     c4.metric("Sobrecargas", n_sobre, delta=None if n_sobre == 0 else "crítico")
+
+    import importlib
+
+    _rap = importlib.import_module("app_riesgo_apagon_panel")
+    _rap.render_riesgo_apagon_panel(subestaciones, lineas, articulaciones)
 
     st.caption(
         f"Paso simulación: **{st.session_state['paso_15min']}** · "

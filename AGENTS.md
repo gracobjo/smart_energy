@@ -9,8 +9,8 @@ Cuando más de una persona o agente trabaja en este repositorio, seguir estas re
 | Ámbito | Archivos / carpetas | Responsabilidad |
 |--------|---------------------|-----------------|
 | **Ingesta** | `producer.py`, Kafka/HDFS en `config.py` | API (OpenWeather), simulación carga por subestación, publicación a Kafka `energy_raw` y HDFS. |
-| **Procesamiento** | `procesamiento/`, `persistencia_hive.py`, JARs en `config.py` | GraphFrames (subestaciones/líneas), detección nodos críticos, Cassandra, Hive. |
-| **Dashboard y docs** | `app_visualizacion.py`, `app_visualizacion_kdd_panel.py`, `README.md`, `README_DESPLIEGUE_SMART_GRID.md`, `docs/API_INTEGRACION.md`, `AGENTS.md` | Mapa, APIs, despliegue, panel KDD (monitorización). |
+| **Procesamiento** | `procesamiento/`, `persistencia_hive.py`, JARs en `config.py` | GraphFrames (subestaciones/líneas), detección nodos críticos, Cassandra, Hive; streaming QA en `procesamiento/smart_grid_streaming/`, `tests/`. |
+| **Dashboard y docs** | `app_visualizacion.py`, `app_visualizacion_kdd_panel.py`, `app_streaming_qa_panel.py`, `README.md`, `README_DESPLIEGUE_SMART_GRID.md`, `docs/API_INTEGRACION.md`, `docs/STREAMING_PYSPARK_QA.md`, `AGENTS.md` | Mapa, APIs, despliegue, panel KDD, pestaña Streaming & QA. |
 | **Infra y orquestación** | `config_nodos.py`, `config.py`, `orquestacion/`, `cassandra/`, `setup_hive.hql` | Topología red eléctrica, configuración global, DAGs Airflow, esquemas Cassandra/Hive. |
 
 ---

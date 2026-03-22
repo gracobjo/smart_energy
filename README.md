@@ -10,7 +10,7 @@ Sistema **Big Data** basado en el ciclo **KDD** y arquitectura **Lambda/Kappa**:
 |--------|-------------|
 | **Ingesta** | `producer.py`: **Electricity Maps** (carbono / mix renovable), **OpenWeather** en zonas solares/eólicas; Kafka `energy_raw` + `weather_raw`; backup HDFS. |
 | **Procesamiento** | Grafos: subestaciones y líneas; **puntos de fallo únicos** (articulación); PageRank; persistencia Cassandra. |
-| **Streaming** | Ventanas **15 min**: carga media de la red, picos de demanda (`streaming_ventanas_15min.py`). |
+| **Streaming** | Ventanas **15 min**: carga media de la red, picos de demanda (`streaming_ventanas_15min.py`). Módulo QA: **`procesamiento/smart_grid_streaming/`** (limpieza, JOIN, anomalías, ventanas, tests **pytest**). Ver **[docs/STREAMING_PYSPARK_QA.md](docs/STREAMING_PYSPARK_QA.md)** y pestaña **Streaming & QA** en Streamlit. |
 | **Hive** | Consumo, líneas, **sostenibilidad** (`sostenibilidad_carbono_hist`), **clima renovables** (`clima_renovables_hist`). |
 | **Dashboard** | Streamlit: mapa, voltaje/potencia, alertas, PageRank, cuadro de mando. |
 | **NiFi** | Ingesta alternativa: APIs (OpenWeather), ExecuteStreamCommand (producer.py), logs GPS → Kafka. Ver `docs/NIFI_INTEGRACION.md`. |
@@ -44,12 +44,22 @@ Opcional tras ingesta: **`PERSIST_HIVE_AFTER_INGEST=1`** → `persistir_hive_ing
 | `producer.py` | Ingesta principal |
 | `procesamiento/procesamiento_grafos.py` | Spark + GraphFrames |
 | `procesamiento/streaming_ventanas_15min.py` | Structured Streaming |
+| `procesamiento/deteccion_apagon/` | Riesgo de apagón (`risk_score`, alertas) — ver `docs/APAGON_ESPANA_2025_CASO.md` |
 | `procesamiento/persistir_hive_ingesta.py` | Hive desde JSON energy/weather |
 | `persistencia_hive.py` | Histórico subestaciones/consumo |
 | `cassandra/esquema_smart_grid.cql` | Esquema Cassandra |
 | `setup_hive.hql` | Esquema Hive |
 | `orquestacion/` | DAGs Airflow |
 | `app_visualizacion.py` | Dashboard Streamlit |
+| `app_streaming_qa_panel.py` | Pestaña Streaming & QA (documentación + pytest) |
+| `tests/` | Tests pytest + PySpark (`pytest tests/ -v`) |
+
+### Tests (pytest + PySpark)
+
+```bash
+cd ~/smart_energy && source venv/bin/activate
+pytest tests/ -v
+```
 
 ---
 

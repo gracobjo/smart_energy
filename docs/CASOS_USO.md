@@ -299,6 +299,47 @@
 
 ---
 
+### CU-11 Consultar documentación streaming y tests (presentación)
+
+**Descripción:** El operador o el tribunal consultan en el dashboard el diseño del pipeline PySpark, requisitos y casos de uso, y el comando para ejecutar tests.
+
+**Actor principal:** Operador, presentador del proyecto
+
+**Precondiciones:** Dashboard Streamlit disponible.
+
+#### Escenario normal
+
+1. El usuario abre la pestaña **📡 Streaming & QA**.
+2. El sistema muestra la documentación Markdown (requisitos, arquitectura Kafka → Spark → Hive/Cassandra, cuatro casos de uso industriales).
+3. El usuario copia el comando `pytest tests/ -v` para validar la suite en terminal.
+
+**Postcondiciones:** Visión integral del módulo de streaming y de la calidad automatizada.
+
+**Detalle de casos técnicos (monitorización en tiempo real, sobrecargas, histórico, alertas):** ver **[STREAMING_PYSPARK_QA.md](STREAMING_PYSPARK_QA.md)** (CU-ST-01 … CU-ST-04).
+
+---
+
+### CU-12 Evaluar riesgo de apagón eléctrico (caso España 2025)
+
+**Descripción:** El operador consulta el **risk_score** del sistema y recibe **alerta crítica** si se supera el umbral, con desglose por sobretensión, frecuencia, generación y cascada — alineado conceptualmente con el **evento real en el sistema eléctrico ibérico (2025)**.
+
+**Actor principal:** Operador de red
+
+**Precondiciones:** Datos de subestaciones/líneas (Cassandra o demo); opcionalmente frecuencia simulada (Hz).
+
+#### Escenario normal
+
+1. El operador abre el dashboard y revisa el panel **Riesgo de apagón** (debajo de los KPIs).
+2. Opcionalmente introduce **frecuencia de red (Hz)** para activar el componente de inestabilidad de frecuencia.
+3. El sistema calcula `risk_score` y muestra el desglose de componentes.
+4. Si `risk_score ≥ umbral`, el sistema muestra **alerta crítica** y recomendaciones textuales.
+
+**Postcondiciones:** Decisión de vigilancia reforzada o escalado operativo documentado.
+
+**Referencia:** **[APAGON_ESPANA_2025_CASO.md](APAGON_ESPANA_2025_CASO.md)**.
+
+---
+
 ## 3. Matriz de trazabilidad
 
 | Caso de uso | Requisitos cubiertos |
@@ -313,3 +354,5 @@
 | CU-08 | RF-07.1, RF-07.3, RF-07.4, RF-07.5, RF-07.7 |
 | CU-09 | RF-07.6 |
 | CU-10 | RF-08.3, RF-09.1, RF-09.2, RF-09.3 |
+| CU-11 | RF-10.5, RF-10.6, RNF-08.1 |
+| CU-12 | RF-11.1, RF-11.2, RF-11.4 |

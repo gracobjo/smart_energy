@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,6 +22,9 @@ from api.datos import (
     cargar_puntos_fallo,
     cargar_subestaciones,
 )
+
+# Riesgo de apagón (tras añadir BASE al path)
+from procesamiento.deteccion_apagon import evaluar_riesgo_apagon_desde_snapshots
 
 # Modelos Pydantic para documentación Swagger
 class Subestacion(BaseModel):
@@ -85,6 +88,16 @@ class HealthResponse(BaseModel):
     version: str = Field("1.0", description="Versión de la API")
 
 
+class RiesgoApagonResponse(BaseModel):
+    """Evaluación de riesgo de apagón (0–100) y alerta crítica."""
+    risk_score: float = Field(..., description="Puntuación agregada 0–100")
+    alerta_critica: bool = Field(..., description="True si supera el umbral operativo")
+    umbral_critico: float = Field(..., description="Umbral configurado")
+    componentes: Dict[str, float] = Field(..., description="Factores sobretensión, frecuencia, generación, cascada")
+    pesos: Dict[str, float] = Field(default_factory=dict)
+    frecuencia_hz_medida: Optional[float] = Field(None, description="Frecuencia usada en el cálculo")
+
+
 app = FastAPI(
     title="Smart Grid API",
     description="""
@@ -95,6 +108,7 @@ API REST para integrar el sistema Smart Grid con otros sistemas.
 - **Líneas**: flujo MW, capacidad, estado por enlace
 - **PageRank**: nodos críticos según centralidad
 - **Puntos de fallo**: articulaciones cuya caída fragmenta la red
+- **Riesgo de apagón**: `risk_score` y alertas (voltaje, frecuencia, generación, cascada)
     """,
     version="1.0.0",
     docs_url="/docs",
@@ -189,6 +203,37 @@ def get_red_completa():
         "pagerank": cargar_pagerank(),
         "puntos_fallo": cargar_puntos_fallo(),
     }
+
+
+@app.get(
+    "/api/v1/riesgo-apagon",
+    response_model=RiesgoApagonResponse,
+    summary="Riesgo de apagón eléctrico",
+    description=(
+        "Calcula risk_score (0–100) a partir de telemetría en Cassandra: voltaje, "
+        "carga vs capacidad, líneas anómalas, articulaciones. Frecuencia opcional (Hz). "
+        "Ver docs/APAGON_ESPANA_2025_CASO.md."
+    ),
+)
+def get_riesgo_apagon(
+    frecuencia_hz: Optional[float] = Query(
+        None,
+        description="Frecuencia de red en Hz (p. ej. 50.0). Si se omite, el componente frecuencia es 0.",
+    ),
+):
+    """Riesgo agregado de apagón y alerta crítica."""
+    sub = cargar_subestaciones()
+    lin = cargar_lineas()
+    pf = cargar_puntos_fallo()
+    raw = evaluar_riesgo_apagon_desde_snapshots(sub, lin, pf, frecuencia_hz=frecuencia_hz)
+    return RiesgoApagonResponse(
+        risk_score=raw["risk_score"],
+        alerta_critica=raw["alerta_critica"],
+        umbral_critico=raw["umbral_critico"],
+        componentes=raw["componentes"],
+        pesos=raw.get("pesos", {}),
+        frecuencia_hz_medida=raw.get("frecuencia_hz_medida"),
+    )
 
 
 def main():

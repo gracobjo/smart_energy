@@ -220,3 +220,22 @@
 | dag_informes_fases_smart_grid | Genera informe consolidado MD + JSON |
 | dag_maestro_smart_grid | Pipeline cada 15 min (ingesta + procesamiento) |
 | dag_mensual_retrain_limpieza_smart_grid | Limpieza HDFS + re-entrenamiento mensual |
+
+### 5.5 Pipeline streaming PySpark (`procesamiento/smart_grid_streaming/`)
+
+| Componente | Rol |
+|--------------|-----|
+| `schemas.py` | StructTypes para lecturas, maestro y eventos |
+| `transformations.py` | Limpieza, broadcast JOIN, anomalías, ventanas con watermark, preparación upsert Cassandra |
+| `tests/` | pytest + Spark local: limpieza, JOIN, anomalías, ventanas, Cassandra, E2E |
+
+**Documentación unificada:** [STREAMING_PYSPARK_QA.md](STREAMING_PYSPARK_QA.md). **Frontend:** pestaña **Streaming & QA** en Streamlit.
+
+### 5.6 Detección de riesgo de apagón (`procesamiento/deteccion_apagon/`)
+
+| Elemento | Descripción |
+|----------|-------------|
+| `riesgo.py` | `risk_score`, componentes (voltaje, frecuencia, generación, cascada), umbral crítico |
+| API | `GET /api/v1/riesgo-apagon` |
+| UI | Panel bajo KPIs del mapa en `app_riesgo_apagon_panel.py` |
+| Caso España 2025 | [APAGON_ESPANA_2025_CASO.md](APAGON_ESPANA_2025_CASO.md) |
