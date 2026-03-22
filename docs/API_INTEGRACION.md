@@ -1,4 +1,12 @@
-# Integración de APIs públicas (Smart Grid)
+# Integración de APIs (Smart Grid)
+
+## API REST propia (Swagger)
+
+El sistema **expone una API REST** documentada con Swagger/OpenAPI para que otros sistemas consuman datos del Smart Grid (subestaciones, líneas, PageRank, puntos de fallo). Ver **[API_SWAGGER.md](API_SWAGGER.md)** — arranque: `./scripts/iniciar_api_smart_grid.sh`, Swagger UI: http://localhost:8000/docs.
+
+---
+
+## APIs públicas consumidas
 
 Este proyecto usa dos familias de datos externos para alimentar el ciclo KDD: **mix eléctrico / carbono** y **meteorología** en zonas renovables.
 

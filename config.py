@@ -58,6 +58,9 @@ SPARK_EVENT_LOG_HDFS_REL = os.environ.get("SPARK_EVENT_LOG_HDFS_REL", "/spark-lo
 NIFI_HOME = os.environ.get("NIFI_HOME", os.path.join(BASE_PATH, "nifi-2.6.0"))
 NIFI_GPS_LOGS_DIR = os.environ.get("NIFI_GPS_LOGS_DIR", os.path.join(BASE_PATH, "data", "gps_logs"))
 
+# API Smart Grid - REST con Swagger (puerto 8000, Airflow usa 8080)
+API_SMART_GRID_PORT = int(os.environ.get("API_SMART_GRID_PORT", 8000))
+
 # Hive - Histórico y reportes (Hive 4.x + Java 21; ver scripts/instalar_hive_java21.sh)
 HIVE_DB = "smart_grid_analytics"
 HIVE_HOME = os.environ.get("HIVE_HOME", os.path.expanduser("~/apache-hive-4.2.0-bin"))

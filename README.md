@@ -16,7 +16,7 @@ Sistema **Big Data** basado en el ciclo **KDD** y arquitectura **Lambda/Kappa**:
 | **NiFi** | Ingesta alternativa: APIs (OpenWeather), ExecuteStreamCommand (producer.py), logs GPS → Kafka. Ver `docs/NIFI_INTEGRACION.md`. |
 | **Airflow** | DAG maestro (ingesta + batch), mensual (limpieza HDFS, grafos, modelo respaldo). |
 
-**APIs:** ver **[docs/API_INTEGRACION.md](docs/API_INTEGRACION.md)** (Electricity Maps + OpenWeather).
+**APIs:** ver **[docs/API_INTEGRACION.md](docs/API_INTEGRACION.md)** (Electricity Maps + OpenWeather). **API REST propia (Swagger):** [docs/API_SWAGGER.md](docs/API_SWAGGER.md) — exponer datos a otros sistemas.
 
 ---
 

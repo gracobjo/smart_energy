@@ -89,8 +89,9 @@ Sistema de **monitoreo de redes de energía inteligentes** para España, basado 
 
 | ID | Descripción | Prioridad |
 |----|-------------|-----------|
-| RF-09.1 | El sistema debe exponer enlaces a Airflow UI y NiFi UI desde el dashboard | Media |
+| RF-09.1 | El sistema debe exponer enlaces a Airflow UI, NiFi UI y API Swagger desde el dashboard | Media |
 | RF-09.2 | El sistema debe documentar credenciales de acceso a las UIs | Baja |
+| RF-09.3 | El sistema debe incluir la API Swagger en arranque, comprobación y parada de servicios (Fase 0, scripts) | Media |
 
 ---
 

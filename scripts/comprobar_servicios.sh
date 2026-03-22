@@ -50,5 +50,11 @@ else
   echo "Airflow: NO (8080 cerrado)"
 fi
 
+if _port_ok 8000; then
+  echo "API Swagger: OK (8000)"
+else
+  echo "API Swagger: NO (8000 cerrado)"
+fi
+
 echo ""
 [[ $FAIL -eq 0 ]] && echo "Servicios base: OK" || { echo "Algunos servicios no están activos."; exit 1; }

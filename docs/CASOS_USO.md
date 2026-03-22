@@ -55,7 +55,7 @@
 
 ### CU-02 Arrancar y comprobar servicios
 
-**Descripción:** El operador arranca los servicios base (HDFS, Kafka, Cassandra, Airflow) y aplica esquemas.
+**Descripción:** El operador arranca los servicios base (HDFS, Kafka, Cassandra, Airflow, API Swagger) y aplica esquemas.
 
 **Actor principal:** Operador
 
@@ -72,9 +72,10 @@
 7. El sistema aplica esquema Cassandra (keyspace smart_grid).
 8. El sistema aplica esquema Hive (si HDFS y spark-sql/hive disponibles).
 9. El sistema arranca Airflow (api-server en 8080 + scheduler).
-10. El sistema muestra el resultado de la comprobación (hdfs_ok, kafka_ok, cassandra_ok, airflow_ok, etc.).
+10. El sistema arranca API Swagger (uvicorn en 8000, Swagger UI en /docs).
+11. El sistema muestra el resultado de la comprobación (hdfs_ok, kafka_ok, cassandra_ok, airflow_ok, api_ok, etc.).
 
-**Postcondiciones:** Servicios en ejecución (incl. Airflow UI en http://localhost:8080); esquemas aplicados.
+**Postcondiciones:** Servicios en ejecución (incl. Airflow UI, API Swagger en http://localhost:8000/docs); esquemas aplicados.
 
 #### Escenario alternativo 3a: HDFS ya responde
 
@@ -217,7 +218,7 @@
 #### Escenario normal
 
 1. El operador pulsa **"■ Parar servicios base"** en Fase 0.
-2. El sistema detiene HDFS, Kafka, Cassandra y NiFi.
+2. El sistema detiene HDFS, Kafka, Cassandra, NiFi, Airflow y API Swagger.
 3. El sistema muestra el estado final de la comprobación.
 
 **Postcondiciones:** Servicios detenidos.
@@ -248,7 +249,7 @@
 |-----|--------|
 | dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra, Airflow |
 | dag_comprobar_servicios_smart_grid | Verifica puertos y servicios |
-| dag_parar_servicios_smart_grid | Para HDFS, Kafka, Cassandra, NiFi |
+| dag_parar_servicios_smart_grid | Para HDFS, Kafka, Cassandra, NiFi, Airflow, API |
 | dag_kdd_fase1_ingesta_smart_grid | Ejecuta producer.py |
 | dag_kdd_fase2_procesamiento_smart_grid | spark-submit procesamiento_grafos.py |
 | dag_kdd_fase3_validacion_smart_grid | Comprueba HDFS y NiFi |
@@ -270,7 +271,7 @@
 #### Escenario normal
 
 1. El operador ejecuta `python scripts/generar_informe_fases.py` o el DAG `dag_informes_fases_smart_grid`.
-2. El sistema recopila: estado de servicios (HDFS, Kafka, Cassandra, NiFi, Airflow), ficheros HDFS, topics Kafka, tablas Cassandra, catálogo Hive, flujo NiFi.
+2. El sistema recopila: estado de servicios (HDFS, Kafka, Cassandra, NiFi, Airflow, API Swagger), ficheros HDFS, topics Kafka, tablas Cassandra, catálogo Hive, flujo NiFi.
 3. El sistema genera `reports/informe_fases_YYYYMMDD_HHMMSS.md` y `informe_fases_latest.json`.
 4. El operador consulta el informe para verificación o auditoría.
 
@@ -278,21 +279,21 @@
 
 ---
 
-### CU-10 Acceder a UIs de Airflow y NiFi
+### CU-10 Acceder a UIs de Airflow, NiFi y API Swagger
 
-**Descripción:** El operador accede a las interfaces web de Airflow y NiFi desde el frontend.
+**Descripción:** El operador accede a las interfaces web de Airflow, NiFi y API Swagger desde el frontend.
 
 **Actor principal:** Operador
 
-**Precondiciones:** Airflow y/o NiFi arrancados; credenciales conocidas.
+**Precondiciones:** Airflow, NiFi y/o API arrancados; credenciales conocidas (si aplica).
 
 #### Escenario normal
 
 1. El operador abre el dashboard Streamlit.
-2. En la barra lateral, el operador ve enlaces a **Airflow** (puerto 8080) y **NiFi** (puerto 8443).
+2. En la barra lateral y en **Monitorización**, el operador ve enlaces a **Airflow** (8080), **NiFi** (8443) y **API Swagger** (8000).
 3. El operador pulsa el enlace correspondiente (se abre en nueva pestaña).
-4. El operador introduce credenciales (Airflow: admin/admin; NiFi: ver nifi-app.log).
-5. El operador gestiona DAGs (Airflow) o flujos de ingesta (NiFi).
+4. Para Airflow: introduce admin/admin; para NiFi: ver nifi-app.log; para API Swagger: documentación interactiva sin credenciales.
+5. El operador gestiona DAGs (Airflow), flujos de ingesta (NiFi) o prueba endpoints REST (API Swagger).
 
 **Postcondiciones:** Acceso a la UI correspondiente.
 
@@ -303,12 +304,12 @@
 | Caso de uso | Requisitos cubiertos |
 |-------------|----------------------|
 | CU-01 | RF-06.1, RF-06.2 |
-| CU-02 | RF-06.3, RF-05.7, RF-07.7 |
+| CU-02 | RF-06.3, RF-05.7, RF-07.7, RF-09.3 |
 | CU-03 | RF-05.5 |
 | CU-04 | RF-05.1, RF-05.2, RF-05.3, RF-05.4 |
 | CU-05 | RF-05.6 |
 | CU-06 | RF-04.* (verificación) |
-| CU-07 | RF-05.7, RF-07.7 |
+| CU-07 | RF-05.7, RF-07.7, RF-09.3 |
 | CU-08 | RF-07.1, RF-07.3, RF-07.4, RF-07.5, RF-07.7 |
 | CU-09 | RF-07.6 |
-| CU-10 | RF-08.3, RF-09.1, RF-09.2 |
+| CU-10 | RF-08.3, RF-09.1, RF-09.2, RF-09.3 |

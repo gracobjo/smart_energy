@@ -1,14 +1,14 @@
 #!/usr/bin/bash
 # Arranca servicios base Smart Grid desde la raíz del repo (equivalente a Fase 0 en el dashboard):
-#   HDFS, Kafka (KRaft), Cassandra, Airflow (api-server + scheduler).
+#   HDFS, Kafka (KRaft), Cassandra, Airflow, API Swagger.
 #
 # Uso:
 #   cd ~/smart_energy
 #   ./scripts/iniciar_servicios.sh
 #   ./scripts/iniciar_servicios.sh --only cassandra
-#   ./scripts/iniciar_servicios.sh --only airflow
+#   ./scripts/iniciar_servicios.sh --only api
 #
-# Variables: HADOOP_HOME, KAFKA_HOME, AIRFLOW_HOME (default ~/airflow)
+# Variables: HADOOP_HOME, KAFKA_HOME, AIRFLOW_HOME, API_SMART_GRID_PORT (8000)
 set -euo pipefail
 
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
       shift || true
       ;;
     -h|--help)
-      echo "Uso: $0 [--only hdfs|kafka|cassandra|airflow]"
+      echo "Uso: $0 [--only hdfs|kafka|cassandra|airflow|api]"
       exit 0
       ;;
     *)
@@ -136,6 +136,25 @@ _start_airflow() {
   echo "    UI: http://localhost:8080 (admin/admin)"
 }
 
+_start_api() {
+  export API_SMART_GRID_PORT="${API_SMART_GRID_PORT:-8000}"
+  local port="$API_SMART_GRID_PORT"
+  if _port_open "$port"; then
+    echo "=== API Swagger: ya responde en $port ==="
+    return 0
+  fi
+  local script="$BASE/scripts/iniciar_api_smart_grid.sh"
+  if [[ ! -x "$script" ]]; then
+    echo "AVISO: No encuentro $script. pip install fastapi uvicorn" >&2
+    return 1
+  fi
+  echo "=== API Swagger: arrancando (puerto $port) ==="
+  local logf="/tmp/smart_grid_api.log"
+  nohup bash "$script" >>"$logf" 2>&1 &
+  echo "  pid=$! · log: $logf"
+  echo "  Swagger UI: http://localhost:$port/docs"
+}
+
 if _should_run hdfs; then
   _start_hdfs
 fi
@@ -147,6 +166,9 @@ if _should_run cassandra; then
 fi
 if _should_run airflow; then
   _start_airflow
+fi
+if _should_run api; then
+  _start_api
 fi
 
 # Calentar catálogo Hive en background (JVM/metastore) para que el dashboard no falle por timeout
@@ -173,5 +195,6 @@ echo ""
 echo "Directorio de trabajo: $BASE"
 echo "Esquema Cassandra (cuando 9042 responda): cqlsh -f cassandra/esquema_smart_grid.cql"
 echo "Airflow UI: http://localhost:8080 (ver docs/CREDENCIALES_UI.md)"
+echo "API Swagger: http://localhost:${API_SMART_GRID_PORT:-8000}/docs"
 echo ""
 echo "Para tener cqlsh, hive, spark-sql en el PATH: source $BASE/scripts/env_smart_grid.sh"

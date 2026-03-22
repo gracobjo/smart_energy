@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Para servicios base Smart Grid.
-# Uso: ./scripts/parar_servicios.sh [--only hdfs|kafka|cassandra|nifi|airflow]
+# Uso: ./scripts/parar_servicios.sh [--only hdfs|kafka|cassandra|nifi|airflow|api]
 set -euo pipefail
 
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,7 +11,7 @@ ONLY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --only) shift; ONLY="${1:-}"; shift || true ;;
-    -h|--help) echo "Uso: $0 [--only hdfs|kafka|cassandra|nifi|airflow]"; exit 0 ;;
+    -h|--help) echo "Uso: $0 [--only hdfs|kafka|cassandra|nifi|airflow|api]"; exit 0 ;;
     *) echo "Opción desconocida: $1" >&2; exit 1 ;;
   esac
 done
@@ -68,10 +68,20 @@ _stop_airflow() {
   fi
 }
 
+_stop_api() {
+  if _should_run api; then
+    echo "=== Parando API Swagger ==="
+    pkill -f "uvicorn api.main:app" 2>/dev/null || true
+    pkill -f "iniciar_api_smart_grid" 2>/dev/null || true
+    echo "API Swagger parada."
+  fi
+}
+
 _stop_hdfs
 _stop_kafka
 _stop_cassandra
 _stop_nifi
 _stop_airflow
+_stop_api
 echo ""
 echo "Servicios parados."

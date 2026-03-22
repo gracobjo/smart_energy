@@ -43,7 +43,7 @@
               ▼
      ┌─────────────────────────────────────────────────────────┐
      │ app_visualizacion (Streamlit)                            │
-     │ Enlaces: Airflow UI (8080) · NiFi UI (8443)              │
+     │ Enlaces: Airflow (8080) · NiFi (8443) · API Swagger (8000)│
      └─────────────────────────────────────────────────────────┘
                              ▲
                              │
@@ -113,7 +113,7 @@
 
 ### 3.3 app_visualizacion.py
 
-- **Responsabilidad:** Dashboard interactivo; mapa Folium; cuadro de mando; ciclo KDD; monitorización.
+- **Responsabilidad:** Dashboard interactivo; mapa Folium; cuadro de mando; ciclo KDD; monitorización; enlaces a Airflow, NiFi, API Swagger.
 - **Módulos:** `app_visualizacion_kdd_panel` (herramientas), `config_nodos` (topología).
 - **Estados:** session_state para paso_15min, prev_cycle_snapshot, fase0_check.
 
@@ -129,7 +129,14 @@
 - **Controller Service:** Kafka3ConnectionService para bootstrap Kafka.
 - **Flow definition:** `nifi/smart_grid_flow_definition.json` importable desde UI.
 
-### 3.6 generar_informe_fases.py
+### 3.6 api/ (API REST Smart Grid)
+
+- **Responsabilidad:** Exponer datos del Smart Grid vía REST con Swagger/OpenAPI para integración con otros sistemas.
+- **Endpoints:** `/api/v1/subestaciones`, `/api/v1/lineas`, `/api/v1/pagerank`, `/api/v1/puntos-fallo`, `/api/v1/red`, `/health`.
+- **Swagger UI:** `/docs` (puerto 8000 por defecto).
+- **Integración:** Incluida en Fase 0 (arranque, parada, comprobación); enlaces en sidebar y Monitorización.
+
+### 3.7 generar_informe_fases.py
 
 - **Responsabilidad:** Generar informe consolidado de todas las fases KDD.
 - **Contenido:** Estado servicios (Fase 0), HDFS/Kafka (Fase I), Cassandra (Fase II), Hive (Fase III), NiFi.
@@ -157,6 +164,7 @@
 5. Aplicación de esquema Cassandra.
 6. Aplicación de esquema Hive (setup_hive.hql).
 7. Airflow (api-server en 8080 + scheduler).
+8. API Swagger (uvicorn en 8000, /docs).
 
 ---
 

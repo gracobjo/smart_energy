@@ -47,6 +47,7 @@ def fase0_servicios() -> dict:
         "cassandra": _port_open("127.0.0.1", 9042),
         "nifi": _port_open("127.0.0.1", 8443),
         "airflow": _port_open("127.0.0.1", 8080),
+        "api": _port_open("127.0.0.1", 8000),
     }
 
 
