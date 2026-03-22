@@ -2154,6 +2154,14 @@ def main():
             _cluster_cassandra.clear()
             st.rerun()
         st.divider()
+        st.markdown("**UIs (Airflow, NiFi)**")
+        ui_host = _get_default_ui_host()
+        st.markdown(
+            f"• [Airflow](http://{ui_host}:8080) · "
+            f"[NiFi](https://{ui_host}:8443/nifi)"
+        )
+        st.caption("Airflow: admin/admin · NiFi: ver nifi-app.log")
+        st.divider()
         st.markdown("**Pipeline local**")
         st.caption("Ejecuta `producer.py` + Spark (requiere Kafka/HDFS/Cassandra según config).")
         if st.button("Ejecutar ciclo 15 min", type="primary", use_container_width=True):

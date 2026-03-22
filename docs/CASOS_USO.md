@@ -216,10 +216,84 @@
 #### Escenario normal
 
 1. El operador pulsa **"■ Parar servicios base"** en Fase 0.
-2. El sistema detiene HDFS, Kafka y Cassandra.
+2. El sistema detiene HDFS, Kafka, Cassandra y NiFi.
 3. El sistema muestra el estado final de la comprobación.
 
 **Postcondiciones:** Servicios detenidos.
+
+---
+
+### CU-08 Ejecutar DAGs de Airflow
+
+**Descripción:** El operador ejecuta DAGs de Airflow como alternativa a los botones del dashboard.
+
+**Actor principal:** Operador
+
+**Precondiciones:** Airflow arrancado (api-server + scheduler); DAGs sincronizados.
+
+#### Escenario normal
+
+1. El operador accede a Airflow UI (enlace en sidebar o Monitorización).
+2. El operador selecciona un DAG (arrancar servicios, comprobar, parar, ingesta, procesamiento, informes, etc.).
+3. El operador pulsa **Trigger DAG**.
+4. El sistema ejecuta las tareas del DAG (scripts reutilizados).
+5. El operador consulta el estado y los logs de cada tarea.
+
+**Postcondiciones:** Tareas ejecutadas según el DAG seleccionado.
+
+#### DAGs disponibles
+
+| DAG | Acción |
+|-----|--------|
+| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra |
+| dag_comprobar_servicios_smart_grid | Verifica puertos y servicios |
+| dag_parar_servicios_smart_grid | Para HDFS, Kafka, Cassandra, NiFi |
+| dag_kdd_fase1_ingesta_smart_grid | Ejecuta producer.py |
+| dag_kdd_fase2_procesamiento_smart_grid | spark-submit procesamiento_grafos.py |
+| dag_kdd_fase3_validacion_smart_grid | Comprueba HDFS y NiFi |
+| dag_consultas_hive_cassandra_smart_grid | Consultas ejemplo |
+| dag_informes_fases_smart_grid | Genera informe consolidado |
+| dag_maestro_smart_grid | Pipeline cada 15 min (automático) |
+| dag_mensual_retrain_limpieza_smart_grid | Limpieza + re-entrenamiento (mensual) |
+
+---
+
+### CU-09 Generar informe consolidado de fases
+
+**Descripción:** El operador o el sistema genera un informe con el estado de todas las fases KDD.
+
+**Actor principal:** Operador, Sistema (DAG)
+
+**Precondiciones:** Ninguna (el informe indica qué servicios están disponibles o no).
+
+#### Escenario normal
+
+1. El operador ejecuta `python scripts/generar_informe_fases.py` o el DAG `dag_informes_fases_smart_grid`.
+2. El sistema recopila: estado de servicios (HDFS, Kafka, Cassandra, NiFi, Airflow), ficheros HDFS, topics Kafka, tablas Cassandra, catálogo Hive, flujo NiFi.
+3. El sistema genera `reports/informe_fases_YYYYMMDD_HHMMSS.md` y `informe_fases_latest.json`.
+4. El operador consulta el informe para verificación o auditoría.
+
+**Postcondiciones:** Informe generado en `reports/`.
+
+---
+
+### CU-10 Acceder a UIs de Airflow y NiFi
+
+**Descripción:** El operador accede a las interfaces web de Airflow y NiFi desde el frontend.
+
+**Actor principal:** Operador
+
+**Precondiciones:** Airflow y/o NiFi arrancados; credenciales conocidas.
+
+#### Escenario normal
+
+1. El operador abre el dashboard Streamlit.
+2. En la barra lateral, el operador ve enlaces a **Airflow** (puerto 8080) y **NiFi** (puerto 8443).
+3. El operador pulsa el enlace correspondiente (se abre en nueva pestaña).
+4. El operador introduce credenciales (Airflow: admin/admin; NiFi: ver nifi-app.log).
+5. El operador gestiona DAGs (Airflow) o flujos de ingesta (NiFi).
+
+**Postcondiciones:** Acceso a la UI correspondiente.
 
 ---
 
@@ -234,3 +308,6 @@
 | CU-05 | RF-05.6 |
 | CU-06 | RF-04.* (verificación) |
 | CU-07 | RF-05.7 |
+| CU-08 | RF-07.1, RF-07.3, RF-07.4, RF-07.5 |
+| CU-09 | RF-07.6 |
+| CU-10 | RF-08.3, RF-09.1, RF-09.2 |

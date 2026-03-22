@@ -11,14 +11,23 @@
                     │  OpenWeather    │
                     └────────┬────────┘
                              │
-                             ▼
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+        ▼                    ▼                    │
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  producer.py │────▶│    Kafka     │────▶│  HDFS backup │
-│  (ingesta)   │     │ energy_raw   │     │  energy_*.json│
-│              │     │ weather_raw  │     └──────┬───────┘
-└──────────────┘     └──────┬───────┘            │
-                             │                    │
-                             ▼                    ▼
+│  producer.py │     │    NiFi      │     │    Kafka     │
+│  (directo o  │     │ ExecuteStream│────▶│ energy_raw   │
+│  vía NiFi)   │────▶│ GetFile GPS  │     │ weather_raw  │
+└──────────────┘     └──────────────┘     │ gps_raw      │
+        │                    │             └──────┬───────┘
+        └────────────────────┼────────────────────┘
+                             ▼
+                    ┌──────────────┐
+                    │  HDFS backup │
+                    │ energy_*.json│
+                    └──────┬───────┘
+                           │
+                           ▼
                     ┌────────────────────────────────────┐
                     │      Spark (procesamiento_grafos)   │
                     │  GraphFrames · PageRank · Fallos    │
@@ -32,24 +41,32 @@
      └────────┬────────┘                          └─────────────────┘
               │
               ▼
-     ┌─────────────────┐
-     │ app_visualizacion│
-     │  (Streamlit)     │
-     └─────────────────┘
+     ┌─────────────────────────────────────────────────────────┐
+     │ app_visualizacion (Streamlit)                            │
+     │ Enlaces: Airflow UI (8080) · NiFi UI (8443)              │
+     └─────────────────────────────────────────────────────────┘
+                             ▲
+                             │
+     ┌───────────────────────┴───────────────────────┐
+     │              Airflow 2.10.x                    │
+     │  DAGs: arranque, parar, comprobar, KDD fases,  │
+     │        consultas Hive/Cassandra, informes      │
+     └───────────────────────────────────────────────┘
 ```
 
 ### 1.2 Capas del sistema
 
 | Capa | Componentes | Tecnología |
 |------|-------------|------------|
-| Ingesta | producer.py | Python, requests, kafka-python |
+| Ingesta | producer.py, NiFi | Python, NiFi 2.6.0, Kafka |
 | Mensajería | Topics Kafka | Apache Kafka 3.9.x (KRaft) |
 | Almacenamiento crudo | HDFS | Hadoop HDFS |
 | Procesamiento | procesamiento_grafos.py | Spark 3.5, GraphFrames |
 | Estado tiempo real | Cassandra | Cassandra 5.0 |
 | Histórico | Hive | Hive 4.x / Spark SQL |
 | Visualización | app_visualizacion.py | Streamlit, Folium |
-| Orquestación | DAGs | Airflow 2.10.x |
+| Orquestación | DAGs Airflow | Airflow 2.10.x |
+| Informes | generar_informe_fases.py | Python |
 
 ---
 
@@ -105,6 +122,19 @@
 - **Responsabilidad:** Escritura de histórico en tablas Hive desde Spark.
 - **Tablas:** subestaciones_historico, lineas_historico, eventos_red_historico, consumo_energetico_diario, metricas_subestaciones_hist.
 
+### 3.5 NiFi (ingesta alternativa)
+
+- **Responsabilidad:** Orquestar ingesta vía flujos visuales.
+- **Procesadores:** GenerateFlowFile (trigger), ExecuteStreamCommand (producer.py), InvokeHTTP (OpenWeather), GetFile (GPS), PublishKafka, PutHDFS.
+- **Controller Service:** Kafka3ConnectionService para bootstrap Kafka.
+- **Flow definition:** `nifi/smart_grid_flow_definition.json` importable desde UI.
+
+### 3.6 generar_informe_fases.py
+
+- **Responsabilidad:** Generar informe consolidado de todas las fases KDD.
+- **Contenido:** Estado servicios (Fase 0), HDFS/Kafka (Fase I), Cassandra (Fase II), Hive (Fase III), NiFi.
+- **Salida:** `reports/informe_fases_*.md` y `informe_fases_latest.json`.
+
 ---
 
 ## 4. Flujos principales
@@ -153,9 +183,31 @@
 
 | Script | Función |
 |--------|---------|
-| scripts/iniciar_servicios.sh | Arranque HDFS, Kafka, Cassandra |
+| scripts/iniciar_servicios.sh | Arranque HDFS, Kafka, Cassandra, calentamiento Hive |
+| scripts/parar_servicios.sh | Parada HDFS, Kafka, Cassandra, NiFi |
+| scripts/comprobar_servicios.sh | Verificación de puertos y CLI |
+| scripts/generar_informe_fases.py | Informe consolidado de todas las fases KDD |
+| scripts/nifi_crear_flujo_fase1.py | Crear procesadores NiFi vía API |
+| scripts/nifi_flujo_comprobar.py | Comprobar flujo NiFi, HDFS, Kafka |
+| scripts/sync_dags_airflow.sh | Sincronizar DAGs a AIRFLOW_HOME |
 | scripts/env_smart_grid.sh | PATH con cqlsh, hive, spark-sql |
 | scripts/aplicar_esquema_cassandra.sh | Esquema Cassandra |
 | scripts/aplicar_esquema_hive.sh | Esquema Hive con warehouse HDFS |
 | scripts/fix_hive_metastore_derby_incompatible.sh | Corregir metastore Derby |
 | scripts/instalar_hive_java21.sh | Instalación Hive 4.x |
+| scripts/instalar_nifi_260.sh | Instalación NiFi 2.6.0 |
+
+### 5.4 DAGs de Airflow
+
+| DAG | Función |
+|-----|---------|
+| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra |
+| dag_comprobar_servicios_smart_grid | Verifica servicios |
+| dag_parar_servicios_smart_grid | Para servicios |
+| dag_kdd_fase1_ingesta_smart_grid | Ejecuta producer.py |
+| dag_kdd_fase2_procesamiento_smart_grid | spark-submit procesamiento_grafos.py |
+| dag_kdd_fase3_validacion_smart_grid | Comprueba HDFS y NiFi |
+| dag_consultas_hive_cassandra_smart_grid | Consultas ejemplo Hive y Cassandra |
+| dag_informes_fases_smart_grid | Genera informe consolidado MD + JSON |
+| dag_maestro_smart_grid | Pipeline cada 15 min (ingesta + procesamiento) |
+| dag_mensual_retrain_limpieza_smart_grid | Limpieza HDFS + re-entrenamiento mensual |

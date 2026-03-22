@@ -50,9 +50,10 @@ airflow scheduler
 
 ### 4. Acceder a la interfaz
 
-- **URL:** http://localhost:8080  
-- **Usuario:** el configurado al crear el usuario (por ejemplo `admin`).  
-- Si es la primera vez: `airflow users create --role Admin --username admin --email admin@localhost --firstname Admin --lastname User --password <contraseña>`.
+- **URL:** http://localhost:8080 (o http://&lt;IP&gt;:8080 si accedes desde otra máquina)
+- **Usuario:** `admin`
+- **Contraseña:** `admin` (crear con `airflow users create` si no existe)
+- Ver `docs/CREDENCIALES_UI.md` para más detalles
 
 ### Resumen de comandos
 
@@ -90,6 +91,31 @@ Estos DAGs están en la carpeta **`orquestacion/`** del proyecto. Para que Airfl
 ### 3. `dag_mensual_retrain_limpieza_smart_grid` (`dag_mensual_retrain_limpieza.py`)
 
 - **Limpieza HDFS** (`energy_*` antiguos) → **re-entrenamiento grafos** → **`modelo_respaldo_energia.py`** (umbrales respaldo + Cassandra `modelo_respaldo`).
+
+### 4. `dag_comprobar_servicios_smart_grid` (`dag_comprobar_servicios.py`)
+
+- Ejecuta `scripts/comprobar_servicios.sh`: verifica HDFS, Kafka, Cassandra, NiFi, Airflow.
+- Manual (Trigger DAG).
+
+### 5. `dag_parar_servicios_smart_grid` (`dag_parar_servicios.py`)
+
+- Ejecuta `scripts/parar_servicios.sh`: para HDFS, Kafka, Cassandra, NiFi.
+- Manual (al cerrar demo).
+
+### 6. DAGs KDD (por fase)
+
+- **`dag_kdd_fase1_ingesta_smart_grid`**: ejecuta `producer.py` (ingesta → Kafka + HDFS).
+- **`dag_kdd_fase2_procesamiento_smart_grid`**: ejecuta `spark-submit procesamiento_grafos.py` (→ Cassandra + Hive).
+- **`dag_kdd_fase3_validacion_smart_grid`**: comprueba HDFS y flujo NiFi.
+
+### 7. `dag_consultas_hive_cassandra_smart_grid` (`dag_consultas_hive_cassandra.py`)
+
+- Ejecuta consultas de ejemplo a Hive (SHOW DATABASES) y Cassandra (DESCRIBE KEYSPACE).
+
+### 8. `dag_informes_fases_smart_grid` (`dag_informes_fases.py`)
+
+- Genera informe consolidado de todas las fases KDD (servicios, ingesta HDFS/Kafka, Cassandra, Hive, NiFi).
+- Salida: `reports/informe_fases_YYYYMMDD_HHMMSS.md` y `reports/informe_fases_latest.json`.
 
 ---
 

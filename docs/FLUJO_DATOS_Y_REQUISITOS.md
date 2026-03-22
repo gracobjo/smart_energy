@@ -41,10 +41,37 @@ Lee **energy_raw**, ventanas **15 min**: carga media, potencia total red, picos.
 
 ---
 
-## 5. Checklist técnico (KDD / Lambda-Kappa)
+## 5. NiFi (ingesta alternativa)
 
-- Fase I: selección y creación del dataset → **producer** + APIs.  
-- Fase II–III: transformación, minería → **Spark** (grafos, streaming).  
-- Fase IV: interpretación → **dashboard**, reportes Hive.  
+- **ExecuteStreamCommand** → producer.py (ciclo completo).
+- **InvokeHTTP** → OpenWeather → PublishKafka weather_raw.
+- **GetFile** → logs GPS → PublishKafka gps_raw.
+- Ver **docs/NIFI_INTEGRACION.md**.
+
+---
+
+## 6. Airflow (orquestación)
+
+| DAG | Función |
+|-----|---------|
+| dag_arranque_servicios | HDFS, Kafka, Cassandra |
+| dag_comprobar_servicios | Verificación puertos y CLI |
+| dag_parar_servicios | Parada servicios |
+| dag_kdd_fase1/2/3 | Ingesta, procesamiento, validación |
+| dag_consultas_hive_cassandra | Consultas ejemplo |
+| dag_informes_fases | Informe consolidado todas las fases |
+| dag_maestro | Pipeline 15 min automático |
+| dag_mensual_retrain_limpieza | Limpieza HDFS + re-entrenamiento |
+
+Ver **docs/AIRFLOW.md**, **docs/CREDENCIALES_UI.md**.
+
+---
+
+## 7. Checklist técnico (KDD / Lambda-Kappa)
+
+- Fase I: selección y creación del dataset → **producer** + APIs + **NiFi**.  
+- Fase II–III: transformación, minería → **Spark** (grafos).  
+- Fase IV: interpretación → **dashboard**, reportes Hive, **informes consolidados**.  
 - **Cassandra**: último estado para alertas.  
-- **Hive**: histórico sostenibilidad y consumo.
+- **Hive**: histórico sostenibilidad y consumo.  
+- **Airflow**: orquestación completa (servicios, fases, informes).

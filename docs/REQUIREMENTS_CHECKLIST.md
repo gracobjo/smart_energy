@@ -8,12 +8,14 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 | Área | Estado | Comentario |
 |------|--------|------------|
-| **Ingesta** | Sí | **`producer.py`**: Electricity Maps + OpenWeather; Kafka **`energy_raw`** + **`weather_raw`**; HDFS. |
-| **Procesamiento** | Sí | GraphFrames, puntos de fallo, PageRank; **Structured Streaming** 15 min. |
+| **Ingesta** | Sí | **`producer.py`** + **NiFi 2.6.0**: Electricity Maps + OpenWeather; Kafka **`energy_raw`** + **`weather_raw`** + **`gps_raw`**; HDFS. |
+| **Procesamiento** | Sí | GraphFrames, puntos de fallo, PageRank; Spark batch. |
 | **Persistencia** | Sí | Cassandra `smart_grid`, Hive `smart_grid_analytics` (sostenibilidad, clima renovables). |
-| **Orquestación** | Sí | DAG 15 min + mensual (limpieza, grafos, **modelo respaldo**). |
+| **Orquestación** | Sí | DAGs: arranque, parar, comprobar, KDD fases, consultas, **informes**, maestro 15 min, mensual. |
+| **NiFi** | Sí | ExecuteStreamCommand (producer), InvokeHTTP, GetFile GPS, PublishKafka; UI accesible desde frontend. |
+| **Informes** | Sí | `generar_informe_fases.py` + DAG; informe consolidado de todas las fases. |
 | **YARN** | Opcional | Spark en `local` por defecto; ver `docs/YARN_Y_SPARK.md`. |
-| **Documentación** | Sí | `README.md`, `docs/API_INTEGRACION.md`, `README_DESPLIEGUE_SMART_GRID.md`. |
+| **Documentación** | Sí | README, docs/, `docs/CREDENCIALES_UI.md`, `docs/INFORME_NIFI_PIPELINE_SMART_GRID.md`. |
 
 ---
 
@@ -70,9 +72,11 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 | Punto del PDF | Qué pide | Estado en el proyecto | ¿Cumple? |
 |---------------|----------|------------------------|----------|
-| DAG | Coordinar **re-entrenamiento mensual** del modelo de grafos y **limpieza de tablas temporales en HDFS** | DAG ejecuta Ingesta + Procesamiento **cada 15 min**; no hay tarea mensual de re-entrenamiento ni limpieza HDFS explícita | Parcial |
+| DAG | Coordinar re-entrenamiento mensual y limpieza HDFS | **dag_mensual_retrain_limpieza**: día 1 de cada mes; limpieza HDFS + re-entrenamiento grafos + modelo respaldo | Sí |
+| DAGs adicionales | Orquestar servicios y fases KDD | **dag_arranque_servicios**, **dag_parar_servicios**, **dag_comprobar_servicios**; **dag_kdd_fase1/2/3**; **dag_consultas_hive_cassandra**; **dag_informes_fases** | Sí |
+| Pipeline periódico | Ingesta + procesamiento cada 15 min | **dag_maestro_smart_grid** | Sí |
 
-**Conclusión Fase IV:** Hay orquestación con Airflow, pero el objetivo del DAG (mensual + limpieza HDFS) no coincide con lo pedido.
+**Conclusión Fase IV:** Orquestación completa con Airflow: DAGs por fase, servicios, informes, maestro 15 min, mensual.
 
 ---
 
@@ -80,11 +84,11 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 | Criterio | Excelente (10) según PDF | Estado actual |
 |----------|--------------------------|----------------|
-| Ingesta | NiFi y Kafka con back-pressure y manejo de errores | Kafka sí; NiFi no; back-pressure no explícito |
-| Procesamiento Spark | GraphFrames, SQL, Streaming, optimización de joins | GraphFrames sí; limpieza en Python; no Structured Streaming |
+| Ingesta | NiFi y Kafka con back-pressure | NiFi 2.6.0 integrado; Kafka energy_raw, weather_raw, gps_raw |
+| Procesamiento Spark | GraphFrames, SQL, Streaming | GraphFrames, PageRank, puntos de fallo; batch desde HDFS |
 | Persistencia | Cassandra + Hive según caso de uso | Sí (Cassandra estado actual, Hive histórico) |
-| Orquestación Airflow | DAGs con reintentos, alertas, dependencias | DAG cada 15 min + DAG mensual (retrain + limpieza HDFS) |
-| Documentación | Cada etapa KDD, diagramas, justificación | README, docs de flujo, AGENTS, este checklist |
+| Orquestación Airflow | DAGs con reintentos, dependencias | 10 DAGs: servicios, KDD fases, informes, maestro 15 min, mensual |
+| Documentación | Cada etapa KDD, diagramas, justificación | README, docs/, AGENTS, CREDENCIALES_UI, INFORME_NIFI |
 
 ---
 
@@ -105,8 +109,7 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 ## Conclusión
 
-Con la infraestructura actual **sin NiFi**:
-
-- **Se cumple**: ciclo de datos (ingesta script → Kafka/HDFS → Spark → Cassandra + Hive), uso de GraphFrames, persistencia dual, orquestación con Airflow, documentación.
-- **Implementado**: dos temas Kafka (raw/filtrado), Structured Streaming 15 min, enriquecimiento desde Hive, DAG mensual + limpieza HDFS, opción YARN.
-- **NiFi integrado**: Ingesta vía NiFi 2.6.0 (API + logs GPS + ExecuteStreamCommand para producer.py).
+- **Se cumple**: ciclo de datos (ingesta producer/NiFi → Kafka/HDFS → Spark → Cassandra + Hive), GraphFrames, persistencia dual, orquestación Airflow completa, NiFi, informes, documentación.
+- **DAGs Airflow**: arranque, parar, comprobar servicios; KDD fases 1–3; consultas Hive/Cassandra; informes consolidados; maestro 15 min; mensual (limpieza HDFS + re-entrenamiento).
+- **NiFi**: Ingesta vía NiFi 2.6.0 (ExecuteStreamCommand producer, InvokeHTTP OpenWeather, GetFile GPS); UI accesible desde dashboard.
+- **UIs**: Enlaces Airflow y NiFi en sidebar y Monitorización; credenciales en `docs/CREDENCIALES_UI.md`.

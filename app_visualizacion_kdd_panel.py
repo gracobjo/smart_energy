@@ -33,6 +33,15 @@ def render_kdd_tools_panel(app: Any, host: str) -> None:
         help="YARN a veces solo en 127.0.0.1; configura yarn-site si hace falta.",
     )
     ui_host = (ui_host or ui_host_default).strip() or "localhost"
+    st.markdown("**Orquestación y flujos**")
+    c0a, c0b = st.columns(2)
+    with c0a:
+        st.link_button("Airflow (8080)", f"http://{ui_host}:8080", use_container_width=True)
+        st.caption("Usuario: admin · Contraseña: admin")
+    with c0b:
+        st.link_button("NiFi (8443)", f"https://{ui_host}:8443/nifi", use_container_width=True)
+        st.caption("Credenciales: nifi-app.log")
+    st.markdown("**Hadoop / Kafka**")
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.link_button("1 · HDFS NN (9870)", f"http://{ui_host}:9870", use_container_width=True)

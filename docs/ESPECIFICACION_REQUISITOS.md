@@ -71,6 +71,25 @@ Sistema de **monitoreo de redes de energía inteligentes** para España, basado 
 |----|-------------|-----------|
 | RF-07.1 | El sistema debe orquestar ingesta y procesamiento batch mediante DAGs | Media |
 | RF-07.2 | El sistema debe incluir DAG mensual de limpieza HDFS y re-entrenamiento | Baja |
+| RF-07.3 | El sistema debe disponer de DAGs para arrancar, comprobar y parar servicios | Media |
+| RF-07.4 | El sistema debe disponer de DAGs por fase KDD (ingesta, procesamiento, validación) | Media |
+| RF-07.5 | El sistema debe disponer de DAG de consultas a Hive y Cassandra | Baja |
+| RF-07.6 | El sistema debe disponer de DAG de informes consolidados de todas las fases | Media |
+
+### RF-08 Ingesta alternativa (NiFi)
+
+| ID | Descripción | Prioridad |
+|----|-------------|-----------|
+| RF-08.1 | El sistema debe permitir ingesta vía NiFi (ExecuteStreamCommand de producer.py) | Media |
+| RF-08.2 | El sistema debe permitir flujos NiFi alternativos (InvokeHTTP OpenWeather, GetFile GPS → Kafka) | Baja |
+| RF-08.3 | El sistema debe exponer UI de NiFi accesible desde el frontend | Media |
+
+### RF-09 Interfaz de orquestación
+
+| ID | Descripción | Prioridad |
+|----|-------------|-----------|
+| RF-09.1 | El sistema debe exponer enlaces a Airflow UI y NiFi UI desde el dashboard | Media |
+| RF-09.2 | El sistema debe documentar credenciales de acceso a las UIs | Baja |
 
 ---
 

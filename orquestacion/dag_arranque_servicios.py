@@ -1,81 +1,21 @@
 """
-DAG de arranque de servicios: HDFS, Cassandra 5.0, Kafka 3.9.1 (KRaft).
-Ejecutar manualmente para levantar servicios antes del pipeline Smart Grid.
+DAG arrancar servicios Smart Grid. Reutiliza scripts/iniciar_servicios.sh.
+HDFS, Kafka (KRaft), Cassandra, calentamiento Hive.
+Ejecución: manual (Trigger DAG).
 """
-from datetime import datetime, timedelta
-from pathlib import Path
 import os
+from datetime import datetime
+from pathlib import Path
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 
-BASE = Path(__file__).resolve().parent.parent
-CASSANDRA_BIN = BASE / "cassandra" / "bin" / "cassandra"
-
-
-def _puerto_activo(host: str, port: int) -> bool:
-    import socket
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)
-        sock.connect((host, port))
-        sock.close()
-        return True
-    except Exception:
-        return False
-
-
-def arrancar_hdfs(**context):
-    if _puerto_activo("127.0.0.1", 9870):
-        return "HDFS ya estaba activo"
-    import subprocess
-    hadoop_home = os.environ.get("HADOOP_HOME", "/opt/hadoop")
-    start_script = Path(hadoop_home) / "sbin" / "start-dfs.sh"
-    if start_script.exists():
-        subprocess.run([str(start_script)], cwd=str(BASE), timeout=60, capture_output=True)
-        return "HDFS arrancado"
-    r = subprocess.run(["start-dfs.sh"], shell=True, cwd=str(BASE), timeout=60, capture_output=True)
-    if r.returncode != 0:
-        raise RuntimeError("No se pudo arrancar HDFS. Ejecuta manualmente: start-dfs.sh")
-    return "HDFS arrancado"
-
-
-def arrancar_cassandra(**context):
-    if _puerto_activo("127.0.0.1", 9042):
-        return "Cassandra ya estaba activa"
-    import subprocess
-    if not CASSANDRA_BIN.exists():
-        raise RuntimeError(f"No encontrado: {CASSANDRA_BIN}")
-    subprocess.Popen(
-        [str(CASSANDRA_BIN)],
-        cwd=str(BASE),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    return "Cassandra arrancando (esperar ~30-60 s)"
-
-
-def arrancar_kafka(**context):
-    if _puerto_activo("127.0.0.1", 9092):
-        return "Kafka ya estaba activo"
-    import subprocess
-    kafka_home = Path(os.environ.get("KAFKA_HOME", "/opt/kafka"))
-    start_script = kafka_home / "bin" / "kafka-server-start.sh"
-    if not start_script.exists():
-        raise RuntimeError(f"Kafka no encontrado en {kafka_home}. Ejecuta: ./scripts/instalar_kafka_local.sh")
-    config = kafka_home / "config" / "kraft" / "server.properties"
-    if not config.exists():
-        config = kafka_home / "config" / "server.properties"
-    subprocess.Popen(
-        [str(start_script), str(config)],
-        cwd=str(kafka_home),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    return "Kafka arrancando (esperar unos segundos)"
-
+_BASE = Path(__file__).resolve().parent.parent
+# Si los DAGs están en ~/airflow/dags (copia), BASE debe ser el proyecto
+BASE = Path(os.environ.get("SMART_ENERGY_HOME", os.environ.get("BASE_PATH", str(_BASE))))
+if BASE.name == "airflow" or not (BASE / "scripts" / "iniciar_servicios.sh").exists():
+    BASE = Path("/home/hadoop/smart_energy")
+SCRIPT = BASE / "scripts" / "iniciar_servicios.sh"
 
 default_args = {
     "owner": "smart_grid",
@@ -87,23 +27,29 @@ default_args = {
 with DAG(
     dag_id="dag_arranque_servicios_smart_grid",
     default_args=default_args,
-    description="Arrancar HDFS, Cassandra y Kafka para Smart Grid",
+    description="Arrancar HDFS, Kafka, Cassandra (usa scripts/iniciar_servicios.sh)",
     schedule=None,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     tags=["smart_grid", "servicios", "arranque"],
 ) as dag:
 
-    start_hdfs = PythonOperator(
+    arrancar_hdfs = BashOperator(
         task_id="arrancar_hdfs",
-        python_callable=arrancar_hdfs,
+        bash_command=f"cd {BASE} && HADOOP_HOME=${{HADOOP_HOME:-/opt/hadoop}} bash {SCRIPT} --only hdfs",
     )
-    start_cassandra = PythonOperator(
-        task_id="arrancar_cassandra",
-        python_callable=arrancar_cassandra,
-    )
-    start_kafka = PythonOperator(
+    arrancar_kafka = BashOperator(
         task_id="arrancar_kafka",
-        python_callable=arrancar_kafka,
+        bash_command=f"cd {BASE} && KAFKA_HOME=${{KAFKA_HOME:-/opt/kafka}} bash {SCRIPT} --only kafka",
     )
-    [start_hdfs, start_cassandra, start_kafka]
+    arrancar_cassandra = BashOperator(
+        task_id="arrancar_cassandra",
+        bash_command=f"cd {BASE} && bash {SCRIPT} --only cassandra",
+    )
+    arrancar_todo = BashOperator(
+        task_id="arrancar_todo",
+        bash_command=f"cd {BASE} && bash {SCRIPT}",
+        trigger_rule="all_done",
+    )
+
+    [arrancar_hdfs, arrancar_kafka, arrancar_cassandra] >> arrancar_todo
