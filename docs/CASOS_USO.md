@@ -353,12 +353,13 @@
 #### Escenario normal
 
 1. El operador abre el dashboard y revisa el panel **Riesgo de apagón** (debajo de los KPIs).
-2. Opcionalmente introduce **frecuencia de red (Hz)** para activar el componente de inestabilidad de frecuencia.
-3. El sistema calcula `risk_score` actual y muestra el desglose de componentes.
-4. El operador simula escenario operativo (horizonte 15/30/45/60 min, carga, capacidad y cascada) para estimar si se cruza el umbral crítico.
-5. El sistema muestra tendencia temporal `risk_score` vs umbral crítico y clasifica la probabilidad operativa de caída (baja/media/alta).
-6. El sistema propone acciones de operación (reruteo, aislamiento selectivo y priorización de nodos/subnodos críticos).
-7. Opcionalmente, el operador aplica el escenario al mapa para visualizar estados esperados (verde/naranja/rojo) sin modificar la persistencia.
+2. Opcionalmente aplica un preset (`Colapso inminente` / `Preventivo`) o ajusta manualmente los controles.
+3. Opcionalmente introduce **frecuencia de red (Hz)** para activar el componente de inestabilidad de frecuencia.
+4. El sistema calcula `risk_score` actual y muestra el desglose de componentes.
+5. El operador simula escenario operativo (horizonte 15/30/45/60 min, carga, capacidad y cascada) para estimar si se cruza el umbral crítico.
+6. El sistema muestra tendencia temporal `risk_score` vs umbral crítico y clasifica la probabilidad operativa de caída (baja/media/alta).
+7. El sistema propone acciones de operación (reruteo, aislamiento selectivo y priorización de nodos/subnodos críticos).
+8. Opcionalmente, el operador aplica el escenario al mapa para visualizar estados esperados (verde/naranja/rojo) sin modificar la persistencia.
 
 **Postcondiciones:** Decisión de vigilancia reforzada o escalado operativo documentado.
 
@@ -367,6 +368,12 @@
 2a. El campo de frecuencia se deja vacío.
 3a. El sistema calcula riesgo sin componente de frecuencia (no penaliza por ese término).
 4a. Se mantiene la evaluación con voltaje, generación y cascada.
+
+#### Escenario alternativo 3b: sin líneas reales en snapshot (modo demo)
+
+2b. El panel detecta ausencia de líneas.
+3b. El sistema habilita **cascada virtual (%)** para simular propagación.
+4b. El operador puede forzar escenarios críticos y validar el procedimiento de contingencia.
 
 **Referencia:** **[APAGON_ESPANA_2025_CASO.md](APAGON_ESPANA_2025_CASO.md)**.
 

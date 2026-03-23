@@ -13,6 +13,22 @@ import streamlit as st
 from procesamiento.deteccion_apagon import evaluar_riesgo_apagon_desde_snapshots
 
 
+def _aplicar_preset_colapso() -> None:
+    st.session_state["riesgo_inc_carga_pct"] = 35
+    st.session_state["riesgo_perdida_cap_pct"] = 25
+    st.session_state["riesgo_horizonte_min"] = 15
+    st.session_state["riesgo_freq_hz"] = "49.2"
+    st.session_state["riesgo_cascada_virtual_pct"] = 80
+
+
+def _aplicar_preset_preventivo() -> None:
+    st.session_state["riesgo_inc_carga_pct"] = 10
+    st.session_state["riesgo_perdida_cap_pct"] = 5
+    st.session_state["riesgo_horizonte_min"] = 30
+    st.session_state["riesgo_freq_hz"] = ""
+    st.session_state["riesgo_cascada_virtual_pct"] = 20
+
+
 def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
@@ -213,6 +229,24 @@ def render_riesgo_apagon_panel(
         "operativa y define acciones de reruteo/aislamiento por nodos y subnodos."
     )
 
+    # Presets antes de instanciar widgets para evitar modificar session_state
+    # de keys ya creadas en el mismo ciclo de render.
+    c_p1, c_p2 = st.columns(2)
+    with c_p1:
+        st.button(
+            "Preset: Colapso inminente",
+            use_container_width=True,
+            key="riesgo_preset_colapso",
+            on_click=_aplicar_preset_colapso,
+        )
+    with c_p2:
+        st.button(
+            "Preset: Preventivo",
+            use_container_width=True,
+            key="riesgo_preset_preventivo",
+            on_click=_aplicar_preset_preventivo,
+        )
+
     c1, c2, c3 = st.columns(3)
     with c1:
         horizonte_min = st.selectbox(
@@ -239,26 +273,6 @@ def render_riesgo_apagon_panel(
             step=1,
             key="riesgo_perdida_cap_pct",
         )
-
-    c_p1, c_p2 = st.columns(2)
-    with c_p1:
-        if st.button("Preset: Colapso inminente", use_container_width=True, key="riesgo_preset_colapso"):
-            st.session_state["riesgo_inc_carga_pct"] = 35
-            st.session_state["riesgo_perdida_cap_pct"] = 25
-            st.session_state["riesgo_horizonte_min"] = 15
-            st.session_state["riesgo_freq_hz"] = "49.2"
-            if "riesgo_cascada_virtual_pct" in st.session_state:
-                st.session_state["riesgo_cascada_virtual_pct"] = 80
-            st.rerun()
-    with c_p2:
-        if st.button("Preset: Preventivo", use_container_width=True, key="riesgo_preset_preventivo"):
-            st.session_state["riesgo_inc_carga_pct"] = 10
-            st.session_state["riesgo_perdida_cap_pct"] = 5
-            st.session_state["riesgo_horizonte_min"] = 30
-            st.session_state["riesgo_freq_hz"] = ""
-            if "riesgo_cascada_virtual_pct" in st.session_state:
-                st.session_state["riesgo_cascada_virtual_pct"] = 20
-            st.rerun()
 
     max_lineas = max(0, len(lineas))
     cascada_virtual_pct = 0.0
