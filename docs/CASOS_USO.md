@@ -124,8 +124,8 @@
 
 1. El directivo abre la pestaña **"📊 Cuadro de mando"**.
 2. El directivo pulsa un botón de informe (p. ej. "Consumo energético total (MWh)").
-3. El sistema ejecuta la consulta Hive correspondiente.
-4. El sistema muestra los resultados en una tabla.
+3. El sistema ejecuta la consulta Hive correspondiente en **modo rápido** (timeout corto para no bloquear la UI).
+4. El sistema muestra los resultados en una tabla (parser tabular estándar o fallback TSV sin cabecera).
 5. El directivo puede pulsar "Limpiar resultado" o elegir otro informe.
 
 **Postcondiciones:** Informe mostrado en pantalla.
@@ -133,13 +133,19 @@
 #### Escenario alternativo 2a: Hive no responde (timeout)
 
 3a. spark-sql o hive exceden tiempo de espera.
-4a. El sistema muestra aviso de timeout y sugiere aumentar HIVE_CATALOG_PROBE_*_TIMEOUT_SEC o ejecutar en terminal.
+4a. El sistema muestra aviso de timeout y sugiere reintentar o ajustar `HIVE_UI_QUICK_HIVE_TIMEOUT_SEC` / `HIVE_UI_QUICK_SPARK_TIMEOUT_SEC`.
 
 #### Escenario alternativo 2b: Tabla vacía o no existe
 
 4b. La consulta devuelve 0 filas o error de tabla inexistente.
 5b. El sistema muestra "Sin filas" o el mensaje de error.
 6b. El directivo debe asegurar que el pipeline ha generado datos históricos.
+
+#### Escenario alternativo 2c: Datos existen pero formato CLI no estándar
+
+4c. `spark-sql` devuelve filas en formato tabulado sin cabecera.
+5c. El parser principal no detecta tabla con separadores `|`.
+6c. El sistema aplica fallback TSV y muestra igualmente el informe en formato legible.
 
 ---
 
@@ -263,7 +269,7 @@
 
 | DAG | Acción |
 |-----|--------|
-| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra, Airflow |
+| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra, Airflow y NiFi |
 | dag_comprobar_servicios_smart_grid | Verifica puertos y servicios |
 | dag_parar_servicios_smart_grid | Para HDFS, Kafka, Cassandra, NiFi, Airflow, API |
 | dag_kdd_fase1_ingesta_smart_grid | Ejecuta producer.py |

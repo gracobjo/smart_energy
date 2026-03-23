@@ -17,8 +17,8 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 NIFI_URL = "https://localhost:8443/nifi-api"
-NIFI_USER = os.environ.get("NIFI_USER", "55d7890e-d973-41d7-b24c-8bdf9c440dcb")
-NIFI_PASS = os.environ.get("NIFI_PASS", "fIQRYTw9dUQNvHJO1oNHj2FDncuzWJGj")
+NIFI_USER = os.environ.get("NIFI_USER", "nifi")
+NIFI_PASS = os.environ.get("NIFI_PASS", "nifinifinifi")
 API_KEY = os.environ.get("API_WEATHER_KEY", "")
 
 ctx = ssl.create_default_context()

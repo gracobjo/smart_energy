@@ -132,7 +132,8 @@ def inicializar_esquema_hive(spark: SparkSession) -> None:
             num_sobrecarga INT,
             num_alerta INT
         )
-        PARTITIONED BY (anio_part INT, mes_part INT)
+        -- Alineado con setup_hive.hql: particiones (anio, mes)
+        PARTITIONED BY (anio INT, mes INT)
         STORED AS parquet
     """)
 
@@ -193,7 +194,40 @@ def persistir_subestaciones_historico(spark: SparkSession, datos: Dict) -> None:
         })
     if registros:
         df = spark.createDataFrame(registros)
-        df.write.mode("append").partitionBy("anio_part", "mes_part").insertInto(f"{HIVE_DB}.{TABLA_SUBESTACIONES}")
+        # OJO: con insertInto() NO se debe usar partitionBy() al mismo tiempo.
+        # Las columnas de partición ya están definidas en la tabla (y en el DataFrame).
+        # En pipelines basados en JSON, los números pueden llegar como STRING.
+        # Antes de escribir, forzamos el tipo para evitar AnalysisException al hacer insertInto().
+        df = (
+            df.withColumn("voltaje_kv", F.col("voltaje_kv").cast("float"))
+            .withColumn("potencia_mw", F.col("potencia_mw").cast("float"))
+            .withColumn("capacidad_mw", F.col("capacidad_mw").cast("float"))
+            .withColumn("uso_pct", F.col("uso_pct").cast("float"))
+            .withColumn("temperatura", F.col("temperatura").cast("float"))
+            .withColumn("humedad", F.col("humedad").cast("int"))
+            .withColumn("anio_part", F.col("anio_part").cast("int"))
+            .withColumn("mes_part", F.col("mes_part").cast("int"))
+        )
+        # insertInto() en Hive puede mapear por orden de columnas; reordenamos para
+        # que coincida con el esquema de setup_hive.hql.
+        df = df.select(
+            "timestamp",
+            "anio",
+            "mes",
+            "dia",
+            "id_subestacion",
+            "voltaje_kv",
+            "potencia_mw",
+            "capacidad_mw",
+            "uso_pct",
+            "estado",
+            "motivo",
+            "temperatura",
+            "humedad",
+            "anio_part",
+            "mes_part",
+        )
+        df.write.mode("append").insertInto(f"{HIVE_DB}.{TABLA_SUBESTACIONES}")
 
 
 def persistir_lineas_historico(spark: SparkSession, datos: Dict) -> None:
@@ -218,7 +252,28 @@ def persistir_lineas_historico(spark: SparkSession, datos: Dict) -> None:
         })
     if registros:
         df = spark.createDataFrame(registros)
-        df.write.mode("append").partitionBy("anio_part", "mes_part").insertInto(f"{HIVE_DB}.{TABLA_LINEAS}")
+        # OJO: con insertInto() NO se debe usar partitionBy() al mismo tiempo.
+        df = (
+            df.withColumn("flujo_mw", F.col("flujo_mw").cast("float"))
+            .withColumn("capacidad_mw", F.col("capacidad_mw").cast("float"))
+            .withColumn("anio_part", F.col("anio_part").cast("int"))
+            .withColumn("mes_part", F.col("mes_part").cast("int"))
+        )
+        df = df.select(
+            "timestamp",
+            "anio",
+            "mes",
+            "dia",
+            "src",
+            "dst",
+            "flujo_mw",
+            "capacidad_mw",
+            "estado",
+            "motivo",
+            "anio_part",
+            "mes_part",
+        )
+        df.write.mode("append").insertInto(f"{HIVE_DB}.{TABLA_LINEAS}")
 
 
 def persistir_clima_historico(spark: SparkSession, datos: Dict) -> None:
@@ -239,14 +294,34 @@ def persistir_clima_historico(spark: SparkSession, datos: Dict) -> None:
         })
     if registros:
         df = spark.createDataFrame(registros)
-        df.write.mode("append").partitionBy("anio_part", "mes_part").insertInto(f"{HIVE_DB}.{TABLA_CLIMA}")
+        # OJO: con insertInto() NO se debe usar partitionBy() al mismo tiempo.
+        df = (
+            df.withColumn("temperatura", F.col("temperatura").cast("float"))
+            .withColumn("humedad", F.col("humedad").cast("int"))
+            .withColumn("anio_part", F.col("anio_part").cast("int"))
+            .withColumn("mes_part", F.col("mes_part").cast("int"))
+        )
+        df = df.select(
+            "timestamp",
+            "anio",
+            "mes",
+            "dia",
+            "subestacion",
+            "temperatura",
+            "humedad",
+            "descripcion",
+            "anio_part",
+            "mes_part",
+        )
+        df.write.mode("append").insertInto(f"{HIVE_DB}.{TABLA_CLIMA}")
 
 
 def calcular_consumo_diario(spark: SparkSession) -> None:
     """Agregado diario: energía (aprox. por potencia*intervalos), max potencia, min/max voltaje, conteo sobrecarga/alerta."""
     spark.sql(f"USE {HIVE_DB}")
     spark.sql(f"""
-        INSERT OVERWRITE TABLE {TABLA_CONSUMO_DIARIO} PARTITION(anio_part, mes_part)
+        -- setup_hive.hql define particiones de consumo como (anio, mes)
+        INSERT OVERWRITE TABLE {TABLA_CONSUMO_DIARIO} PARTITION(anio, mes)
         SELECT
             id_subestacion,
             CONCAT(CAST(anio AS STRING), '-', LPAD(CAST(mes AS STRING), 2, '0'), '-', LPAD(CAST(dia AS STRING), 2, '0')) as fecha,
@@ -256,11 +331,11 @@ def calcular_consumo_diario(spark: SparkSession) -> None:
             MAX(voltaje_kv) AS voltaje_max_kv,
             SUM(CASE WHEN estado = 'sobrecarga' THEN 1 ELSE 0 END) AS num_sobrecarga,
             SUM(CASE WHEN estado = 'alerta' THEN 1 ELSE 0 END) AS num_alerta,
-            anio AS anio_part,
-            mes AS mes_part
+            anio,
+            mes
         FROM {TABLA_SUBESTACIONES}
         WHERE anio_part IS NOT NULL
-        GROUP BY id_subestacion, anio, mes, dia, anio, mes
+        GROUP BY id_subestacion, anio, mes, dia
     """)
 
 

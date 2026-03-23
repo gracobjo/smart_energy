@@ -117,16 +117,19 @@
 - **Responsabilidad:** Dashboard interactivo; mapa Folium; cuadro de mando; ciclo KDD; monitorización; enlaces a Airflow, NiFi, API Swagger.
 - **Módulos:** `app_visualizacion_kdd_panel` (herramientas), `config_nodos` (topología).
 - **Estados:** session_state para paso_15min, prev_cycle_snapshot, fase0_check.
+- **Cuadro de mando Hive:** consultas SQL con modo rápido (`quick_check`) para no bloquear UI; parser principal (tabla con `|`) + fallback TSV sin cabecera para renderizar datos legibles cuando `spark-sql` devuelve salida tabulada.
 
 ### 3.4 persistencia_hive.py
 
 - **Responsabilidad:** Escritura de histórico en tablas Hive desde Spark.
 - **Tablas:** subestaciones_historico, lineas_historico, eventos_red_historico, consumo_energetico_diario, metricas_subestaciones_hist.
+- **Correcciones de escritura:** `insertInto()` sin `partitionBy()` (evita AnalysisException), casting explícito y reordenación de columnas para compatibilidad de tipos; agregado `consumo_energetico_diario` alineado con particiones `(anio, mes)` de `setup_hive.hql`.
 
 ### 3.5 NiFi (ingesta alternativa)
 
 - **Responsabilidad:** Orquestar ingesta vía flujos visuales.
 - **Procesadores (8):** NiFi_F1_GenerateTrigger, InvokeHTTP_OpenWeather, JoltTransformJSON_ToSchema, PublishKafka_weather_raw, PublishKafka_energy_raw, ExecuteProducer (producer.py), GetFile_GPS, PublishKafka_gps_raw. Tabla alineada en dashboard.
+- **Cadencia:** Trigger principal ajustado a `15 min` para acompasar `ExecuteProducer` y evitar crecimiento de cola Trigger→ExecuteProducer.
 - **Controller Service:** Kafka3ConnectionService para bootstrap Kafka.
 - **Dashboard:** Crear, conectar, alinear (posiciones en canvas), arrancar/parar. Búsqueda con `includeDescendantGroups` para grupos anidados. InvokeHTTP usa Response (no Original) y auto-termina Original. ExecuteStreamCommand usa "Command Path".
 - **Provenance:** API asíncrona (POST→poll→DELETE); script `nifi_flujo_comprobar.py` corregido.
@@ -193,6 +196,8 @@
 | API_WEATHER_KEY | — | API OpenWeather |
 | NIFI_USER, NIFI_PASS | — | Credenciales NiFi (ver nifi-app.log o set-single-user-credentials) |
 | AIRFLOW_USER, AIRFLOW_PASS | admin / — | Credenciales Airflow UI (ver simple_auth_manager_passwords.json.generated) |
+| HIVE_UI_QUICK_HIVE_TIMEOUT_SEC | 25 | Timeout rápido (segundos) para consultas Hive desde cuadro de mando |
+| HIVE_UI_QUICK_SPARK_TIMEOUT_SEC | 45 | Timeout rápido (segundos) para consultas spark-sql desde cuadro de mando |
 | NIFI_USER / NIFI_PASS | — | Credenciales API NiFi (ver nifi-app.log o set-single-user-credentials) |
 | AIRFLOW_USER / AIRFLOW_PASS | admin / (ver abajo) | Credenciales Airflow UI; 3.x: contraseña en `~/airflow/simple_auth_manager_passwords.json.generated` |
 
@@ -229,7 +234,7 @@
 
 | DAG | Función |
 |-----|---------|
-| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra, Airflow |
+| dag_arranque_servicios_smart_grid | Arranca HDFS, Kafka, Cassandra, Airflow y NiFi (espera puerto 8443) |
 | dag_comprobar_servicios_smart_grid | Verifica servicios |
 | dag_parar_servicios_smart_grid | Para servicios |
 | dag_kdd_fase1_ingesta_smart_grid | Ejecuta producer.py |

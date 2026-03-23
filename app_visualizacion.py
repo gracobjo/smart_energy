@@ -999,8 +999,27 @@ def _ejecutar_consulta_hive(
                 th, ts = 120, 240
             return th if name == "hive" else ts
         if quick_check:
-            return 90 if name == "hive" else 180
-        return 90 if name == "hive" else 180
+            # Modo rápido para paneles interactivos (evita esperas largas en UI).
+            try:
+                th = int(os.environ.get("HIVE_UI_QUICK_HIVE_TIMEOUT_SEC", "25"))
+            except ValueError:
+                th = 25
+            try:
+                ts = int(os.environ.get("HIVE_UI_QUICK_SPARK_TIMEOUT_SEC", "45"))
+            except ValueError:
+                ts = 45
+            return th if name == "hive" else ts
+        # Cuadro de mando directivo: queremos minimizar timeouts durante la demo.
+        # Permite override en runtime con variables de entorno.
+        try:
+            th = int(os.environ.get("HIVE_UI_TIMEOUT_HIVE_SEC", "120"))
+        except ValueError:
+            th = 120
+        try:
+            ts = int(os.environ.get("HIVE_UI_TIMEOUT_SPARK_SEC", "240"))
+        except ValueError:
+            ts = 240
+        return th if name == "hive" else ts
 
     def _run_candidates() -> Tuple[int, str]:
         last_err = ""
@@ -1149,6 +1168,139 @@ def _parse_hive_spark_sql_cli_output(text: str) -> Optional[List[Dict[str, Any]]
             continue
         out.append({header[i]: r[i] for i in range(len(header))})
     return out if out else None
+
+
+def _parse_cli_tabular_without_header(text: str, headers: Optional[List[str]] = None) -> Optional[List[Dict[str, Any]]]:
+    """
+    Parser fallback para salidas tipo TSV (sin cabecera) de spark-sql/hive.
+    """
+    rows: List[List[str]] = []
+    for raw in (text or "").splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        if s.startswith("SLF4J") or s.startswith("Setting default log level"):
+            continue
+        if s.startswith("Spark Web UI available") or s.startswith("Spark master:"):
+            continue
+        if s.startswith("Time taken:") or s.startswith("["):
+            continue
+        # Filtrar líneas WARN/INFO típicas de Spark/Hive.
+        if re.match(r"^\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\s+(WARN|INFO|ERROR)\s+", s):
+            continue
+
+        parts = [p.strip() for p in s.split("\t")] if "\t" in s else []
+        if not parts or len(parts) < 2:
+            continue
+        if any(p == "" for p in parts):
+            continue
+        rows.append(parts)
+
+    if not rows:
+        return None
+    ncols = max(len(r) for r in rows)
+    if ncols < 2:
+        return None
+
+    if headers and len(headers) == ncols:
+        cols = headers
+    else:
+        cols = [f"col_{i+1}" for i in range(ncols)]
+
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        if len(r) != ncols:
+            continue
+        out.append({cols[i]: r[i] for i in range(ncols)})
+    return out if out else None
+
+
+def _cuadro_headers_by_key(key: str) -> Optional[List[str]]:
+    mapping: Dict[str, List[str]] = {
+        "consumo": ["id_subestacion", "total_mwh", "potencia_media_mw"],
+        "sostenibilidad": ["fecha", "carbon_intensity_g_co2_kwh", "renewable_pct", "carga_media_subestaciones_mw"],
+        "red": ["origen", "destino", "estado", "motivo_fallo", "flujo_mw", "timestamp_evento"],
+        "pagerank": ["id_subestacion", "pagerank_score", "voltaje_kv", "potencia_mw", "fecha_proceso"],
+        "consumo_fecha": ["id_subestacion", "fecha", "energia_mwh", "num_eventos_sobrecarga", "num_eventos_alerta"],
+        "clima": ["subestacion_nombre", "temperatura", "humedad", "descripcion", "fecha_captura"],
+        "subest_hist": ["id_subestacion", "voltaje_kv", "potencia_mw", "estado", "timestamp"],
+        "eventos_hist": ["tipo_entidad", "id_entidad", "estado", "motivo", "timestamp"],
+    }
+    return mapping.get(key)
+
+
+def _hive_table_count(table_name: str) -> Optional[int]:
+    """
+    Devuelve COUNT(*) de una tabla Hive o None si no se puede determinar.
+    """
+    rc, out = _ejecutar_consulta_hive(f"SELECT COUNT(*) AS c FROM {HIVE_DB}.{table_name};")
+    if rc != 0:
+        return None
+    parsed = _parse_hive_spark_sql_cli_output(out or "")
+    if parsed:
+        v = (parsed[0].get("c") or parsed[0].get("count(1)") or "").strip()
+        try:
+            return int(float(v))
+        except Exception:
+            pass
+    # Fallback: buscar un entero en las últimas líneas (cuando el formato no sea tabular)
+    for ln in reversed((out or "").splitlines()):
+        s = ln.strip()
+        if s.isdigit():
+            try:
+                return int(s)
+            except Exception:
+                return None
+    return None
+
+
+def _hive_table_location(table_name: str) -> Optional[str]:
+    """
+    Obtiene la ubicación física de una tabla Hive vía `DESCRIBE EXTENDED`.
+    Devuelve un string tipo `file:/...` o `hdfs://...`.
+    """
+    rc, out = _ejecutar_consulta_hive(f"DESCRIBE EXTENDED {HIVE_DB}.{table_name};")
+    if rc != 0:
+        return None
+    for ln in (out or "").splitlines():
+        s = ln.strip()
+        # Ejemplo: "Location             file:/.../spark-warehouse/..."
+        if s.lower().startswith("location"):
+            parts = s.split(None, 1)
+            if len(parts) == 2:
+                return parts[1].strip()
+    return None
+
+
+def _hive_table_has_parquet(table_name: str) -> Optional[bool]:
+    """
+    Determina si una tabla tiene al menos un `part-*.parquet` en su ubicación.
+    Evita ejecutar `COUNT(*)` (que puede ser lento) y usa la ruta real.
+    """
+    loc = _hive_table_location(table_name)
+    if not loc:
+        return None
+    if loc.startswith("file:"):
+        path = loc[len("file:") :]
+        import glob
+
+        # Comprobación rápida: busca ficheros parquet en subcarpetas.
+        parts = glob.glob(str(Path(path) / "**" / "part-*.parquet"), recursive=True)
+        return len(parts) > 0
+    # HDFS: intentar ls con patrón (puede variar según distro/config).
+    if loc.startswith("hdfs://"):
+        # Convertir a ruta usable por `hdfs dfs -ls`.
+        hdfs_path = loc
+    else:
+        hdfs_path = loc
+    try:
+        # Intenta listar algunos matches; si no hay, asumimos vacío.
+        r = _safe_run(["hdfs", "dfs", "-ls", f"{hdfs_path}/**/part-*.parquet"], timeout_s=30)
+        if r["rc"] == 0 and (r["stdout"] or "").strip():
+            return True
+        return False
+    except Exception:
+        return None
 
 
 def _row_cassandra_to_dict(r) -> Dict[str, Any]:
@@ -1411,7 +1563,7 @@ def _nifi_required_processors_fase1() -> List[Dict[str, str]]:
     Debe coincidir exactamente con _nifi_crear_procesadores_fase1_demo().
     """
     return [
-        {"procesador": "NiFi_F1_GenerateTrigger", "objetivo": "Disparar ejecución periódica (cada 10 s)."},
+        {"procesador": "NiFi_F1_GenerateTrigger", "objetivo": "Disparar ejecución periódica (cada 15 min, ajustable)."},
         {"procesador": "NiFi_F1_InvokeHTTP_OpenWeather", "objetivo": "API OpenWeather → JSON clima (Madrid)."},
         {"procesador": "NiFi_F1_JoltTransformJSON_ToSchema", "objetivo": "Transformar JSON a schema esperado."},
         {"procesador": "NiFi_F1_PublishKafka_weather_raw", "objetivo": "Publicar en Kafka topic `weather_raw`."},
@@ -1757,7 +1909,7 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
     # 2) Actualizar config de procesadores (Kafka CS, autoTerminate, schedulingPeriod)
     pid_map = {n: existing[n] for n in required_names + optional_names if n in existing}
     updates = {
-        pid_map["NiFi_F1_GenerateTrigger"]: {"schedulingPeriod": "10 sec", "auto": [], "props": {}},
+        pid_map["NiFi_F1_GenerateTrigger"]: {"schedulingPeriod": "15 min", "auto": [], "props": {}},
         pid_map["NiFi_F1_InvokeHTTP_OpenWeather"]: {"schedulingPeriod": "10 sec", "auto": ["Original", "Failure", "No Retry", "Retry"], "props": {"HTTP URL": f"https://api.openweathermap.org/data/2.5/weather?q=Madrid&appid={API_WEATHER_KEY or ''}&units=metric"}},
         pid_map["NiFi_F1_JoltTransformJSON_ToSchema"]: {"schedulingPeriod": "10 sec", "auto": ["failure"], "props": {}},
         pid_map["NiFi_F1_PublishKafka_weather_raw"]: {"schedulingPeriod": "10 sec", "auto": ["success", "failure"], "props": {"Kafka Connection Service": kafka_cs}},
@@ -2456,36 +2608,102 @@ def _render_cuadro_mando_directivo() -> None:
     if "cuadro_mando_result" not in st.session_state:
         st.session_state["cuadro_mando_result"] = None
         st.session_state["cuadro_mando_label"] = ""
+        st.session_state["cuadro_mando_key"] = ""
     st.markdown("##### Informes desde el histórico (Hive)")
     cols = st.columns(3)
     for i, (label, key, sql) in enumerate(_CUADRO_MANDO_QUERIES):
         with cols[i % 3]:
             if st.button(label, key=f"cuadro_{key}", use_container_width=True):
                 with st.spinner(f"Consultando Hive: {label}..."):
-                    rc, out = _ejecutar_consulta_hive(sql.strip())
+                    rc, out = _ejecutar_consulta_hive(sql.strip(), quick_check=True)
                 parsed = _parse_hive_spark_sql_cli_output(out) if rc == 0 else None
+                if rc == 0 and not parsed:
+                    parsed = _parse_cli_tabular_without_header(out, headers=_cuadro_headers_by_key(key))
                 st.session_state["cuadro_mando_result"] = (rc, out, parsed)
                 st.session_state["cuadro_mando_label"] = label
+                st.session_state["cuadro_mando_key"] = key
                 st.rerun()
     res = st.session_state.get("cuadro_mando_result")
     if res:
         rc, out, parsed = res
         label = st.session_state.get("cuadro_mando_label", "")
         st.markdown(f"##### 📋 {label}")
+        out_s = (out or "").strip()
+        is_timeout = "timeout" in out_s.lower()
+        timed_out_engines = []
+        if "spark-sql" in out_s.lower():
+            timed_out_engines.append("`spark-sql`")
+        if "hive" in out_s.lower():
+            timed_out_engines.append("`hive`")
+        if not timed_out_engines and is_timeout:
+            timed_out_engines = ["motores Hive/Spark"]
+
         if rc == 0:
             if parsed:
+                st.success(f"Informe generado correctamente ({len(parsed)} filas).")
                 st.dataframe(parsed, use_container_width=True, hide_index=True)
             else:
-                st.info("Sin filas o formato no reconocido.")
-            with st.expander("Salida raw"):
-                st.code(out[:6000] if out else "(vacío)")
+                st.warning("La consulta terminó OK, pero no devolvió filas legibles para el informe.")
+                if label == "Consumo energético total (MWh)":
+                    has_cons = _hive_table_has_parquet("consumo_energetico_diario")
+                    has_sub = _hive_table_has_parquet("subestaciones_historico")
+                    if has_cons is False:
+                        st.info(
+                            "La tabla `consumo_energetico_diario` está vacía. "
+                            "La **ingesta** (NiFi/Kafka) por sí sola no llena este informe: "
+                            "hay que ejecutar la **Fase 2 (procesamiento Spark + persistencia Hive)**."
+                        )
+                    elif has_cons is None and has_sub is not None:
+                        st.info(
+                            "No se pudo leer el conteo de `consumo_energetico_diario` con formato tabular. "
+                            "Puede ser un problema de salida CLI, no de NiFi."
+                        )
+                    if has_sub is False:
+                        st.caption(
+                            "También está vacía `subestaciones_historico`: aún no hay histórico en Hive para este cuadro."
+                        )
+                    if has_cons is True:
+                        st.info(
+                            "La tabla `consumo_energetico_diario` **sí tiene datos (Parquet)**, pero "
+                            "la salida del CLI no se pudo convertir a filas legibles para este informe. "
+                            "Mira el expander técnico."
+                        )
+                st.caption("Revisa el expander técnico para ver la salida exacta.")
+                # Vista previa visible: evita que el usuario perciba "no sale nada".
+                preview_lines = [ln for ln in out_s.splitlines() if ln.strip()][:12]
+                if preview_lines:
+                    st.code("\n".join(preview_lines))
+            with st.expander("Informe técnico (salida)"):
+                st.code(out_s[:6000] if out_s else "(vacío)")
         else:
-            st.warning(f"rc={rc}. Ver salida.")
-            with st.expander("Salida"):
-                st.code((out or "")[:4000])
+            st.error(f"No se pudo generar el informe (rc={rc}).")
+            if is_timeout:
+                st.caption(f"Causa probable: timeout en {', '.join(timed_out_engines)}.")
+                st.markdown(
+                    "Recomendaciones: espera 1–3 minutos y reintenta, o asegúrate de que Hive/Spark ya "
+                    "están calentados (pestaña **0 · Entorno** → **Arrancar servicios** → **Comprobar**)."
+                )
+            else:
+                st.caption("Causa probable: fallo de entorno (Hive/Spark/metastore).")
+                st.markdown(
+                    "Recomendaciones: verifica que Hive/Spark estén arrancados, revisa el expander con la salida técnica, "
+                    "y si hay dudas consulta `docs/TROUBLESHOOTING_STREAMLIT.md`."
+                )
+
+            preview = ""
+            for ln in out_s.splitlines():
+                if ln.strip():
+                    preview = ln.strip()
+                    break
+            if preview:
+                st.code(preview[:400])
+
+            with st.expander("Informe técnico (salida completa)"):
+                st.code(out_s[:12000] if out_s else "(vacío)")
         if st.button("Limpiar resultado", key="cuadro_clear"):
             st.session_state["cuadro_mando_result"] = None
             st.session_state["cuadro_mando_label"] = ""
+            st.session_state["cuadro_mando_key"] = ""
             st.rerun()
     st.divider()
     st.markdown("##### Resumen de tablas del histórico")

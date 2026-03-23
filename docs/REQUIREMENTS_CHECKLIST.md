@@ -14,6 +14,7 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 | **Orquestación** | Sí | DAGs: arranque, parar, comprobar, KDD fases, consultas, **informes**, maestro 15 min, mensual. |
 | **NiFi** | Sí | ExecuteStreamCommand (producer), InvokeHTTP, GetFile GPS, PublishKafka; UI accesible desde frontend. |
 | **Informes** | Sí | `generar_informe_fases.py` + DAG; informe consolidado de todas las fases. |
+| **Cuadro de mando Hive** | Sí | Consultas con modo rápido (timeout corto) y fallback de parseo tabular para salida legible en dashboard. |
 | **YARN** | Opcional | Spark en `local` por defecto; ver `docs/YARN_Y_SPARK.md`. |
 | **Documentación** | Sí | README, docs/, `docs/CREDENCIALES_UI.md`, `docs/INFORME_NIFI_PIPELINE_SMART_GRID.md`. |
 
@@ -112,5 +113,8 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 - **Se cumple**: ciclo de datos (ingesta producer/NiFi → Kafka/HDFS → Spark → Cassandra + Hive), GraphFrames, persistencia dual, orquestación Airflow completa, NiFi, informes, documentación.
 - **DAGs Airflow**: arranque, parar, comprobar servicios; KDD fases 1–3; consultas Hive/Cassandra; informes consolidados; maestro 15 min; mensual (limpieza HDFS + re-entrenamiento).
 - **NiFi**: Ingesta vía NiFi 2.6.0 (ExecuteStreamCommand producer, InvokeHTTP OpenWeather, GetFile GPS); UI accesible desde dashboard. **Funcionalidades añadidas:** Crear/conectar/arrancar/parar procesadores desde dashboard; alinear procesadores en canvas; reparar conexión InvokeHTTP→Jolt (Response vs Original); auto-terminar relaciones (Original, output stream, etc.); provenance API (búsqueda asíncrona); búsqueda de procesadores en grupos anidados (includeDescendantGroups).
+- **NiFi (estabilidad de colas):** `GenerateTrigger` ajustado a `15 min` para acompasar `ExecuteProducer` (15 min) y evitar acumulación de FlowFiles en la conexión Trigger→ExecuteProducer.
+- **Persistencia Hive (corrección):** escritura histórica corregida para no usar `partitionBy()+insertInto()` simultáneamente; cast y orden de columnas alineados con tablas Hive; `consumo_energetico_diario` usa particiones `(anio, mes)` coherentes con `setup_hive.hql`.
+- **Cuadro de mando (operatividad):** consultas Hive en modo rápido (`quick_check`) con timeouts cortos y parser fallback TSV sin cabecera para evitar mensajes ambiguos de “sin filas legibles” cuando sí hay datos.
 - **UIs**: Enlaces Airflow, NiFi, API Swagger, HDFS, YARN, Job History (19888), Spark History en sidebar y Monitorización; credenciales en `docs/CREDENCIALES_UI.md`. **Job History:** arrancar con botón antes de abrir enlace; troubleshooting si 10.0.2.15 no conecta (usar localhost).
 - **Airflow 3.x**: Requiere tres procesos (api-server, dag-processor, scheduler). Sincronizar DAGs con `./scripts/sync_dags_airflow.sh`. Credenciales (`AIRFLOW_USER`, `AIRFLOW_PASS`) en `.env`; contraseña inicial en `~/airflow/simple_auth_manager_passwords.json.generated` (SimpleAuthManager). Ver `docs/AIRFLOW.md` y `docs/CREDENCIALES_UI.md`.
