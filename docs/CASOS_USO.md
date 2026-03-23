@@ -354,10 +354,19 @@
 
 1. El operador abre el dashboard y revisa el panel **Riesgo de apagón** (debajo de los KPIs).
 2. Opcionalmente introduce **frecuencia de red (Hz)** para activar el componente de inestabilidad de frecuencia.
-3. El sistema calcula `risk_score` y muestra el desglose de componentes.
-4. Si `risk_score ≥ umbral`, el sistema muestra **alerta crítica** y recomendaciones textuales.
+3. El sistema calcula `risk_score` actual y muestra el desglose de componentes.
+4. El operador simula escenario operativo (horizonte 15/30/45/60 min, carga, capacidad y cascada) para estimar si se cruza el umbral crítico.
+5. El sistema muestra tendencia temporal `risk_score` vs umbral crítico y clasifica la probabilidad operativa de caída (baja/media/alta).
+6. El sistema propone acciones de operación (reruteo, aislamiento selectivo y priorización de nodos/subnodos críticos).
+7. Opcionalmente, el operador aplica el escenario al mapa para visualizar estados esperados (verde/naranja/rojo) sin modificar la persistencia.
 
 **Postcondiciones:** Decisión de vigilancia reforzada o escalado operativo documentado.
+
+#### Escenario alternativo 3a: sin frecuencia medida (Hz vacío)
+
+2a. El campo de frecuencia se deja vacío.
+3a. El sistema calcula riesgo sin componente de frecuencia (no penaliza por ese término).
+4a. Se mantiene la evaluación con voltaje, generación y cascada.
 
 **Referencia:** **[APAGON_ESPANA_2025_CASO.md](APAGON_ESPANA_2025_CASO.md)**.
 

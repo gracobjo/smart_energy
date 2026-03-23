@@ -265,5 +265,11 @@ Las tablas ESG (`sostenibilidad_carbono_hist`, `clima_renovables_hist`) se relle
 |----------|-------------|
 | `riesgo.py` | `risk_score`, componentes (voltaje, frecuencia, generación, cascada), umbral crítico |
 | API | `GET /api/v1/riesgo-apagon` |
-| UI | Panel bajo KPIs del mapa en `app_riesgo_apagon_panel.py` |
+| UI | Panel bajo KPIs del mapa en `app_riesgo_apagon_panel.py` con simulación operativa (horizonte 15/30/45/60 min), playbook de respuesta y aplicación visual de contingencia al mapa |
 | Caso España 2025 | [APAGON_ESPANA_2025_CASO.md](APAGON_ESPANA_2025_CASO.md) |
+
+**Procedimiento operativo en frontend (riesgo de apagón):**
+- Evaluación actual + estimación por horizonte (15/30/45/60 min) con variables de estrés (carga, pérdida de capacidad, líneas anómalas, frecuencia opcional).
+- Curva temporal de `risk_score` frente a línea de umbral crítico para detectar cruce anticipado.
+- Recomendaciones por nivel de riesgo (preventivo, pre-contingencia, crisis) y listado de nodos/subnodos prioritarios.
+- Simulación de contingencia sobre mapa (cambios de estado por color), sin persistencia en Cassandra.

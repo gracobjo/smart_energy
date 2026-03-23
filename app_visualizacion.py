@@ -3308,6 +3308,16 @@ def main():
     _rap = importlib.import_module("app_riesgo_apagon_panel")
     _rap.render_riesgo_apagon_panel(subestaciones, lineas, articulaciones)
 
+    # Si el panel de riesgo activa un escenario de contingencia, se refleja en el mapa.
+    override = st.session_state.get("riesgo_map_override") or {}
+    if override.get("subestaciones") and override.get("lineas"):
+        subestaciones = override.get("subestaciones", subestaciones)
+        lineas = override.get("lineas", lineas)
+        st.warning(
+            f"Mapa en modo simulación de contingencia (@{override.get('horizonte_min', '?')} min). "
+            "No modifica datos persistidos."
+        )
+
     st.caption(
         f"Paso simulación: **{st.session_state['paso_15min']}** · "
         "El mapa se actualiza tras **Ejecutar ciclo 15 min** (producer + Spark) o **Recargar datos**."
