@@ -21,6 +21,7 @@ flowchart TB
         UC5[CU-05 Ver informe cambios ciclos]
         UC6[CU-06 Consultas Hive manuales]
         UC7[CU-07 Parar servicios]
+        UC12[CU-12 Evaluar riesgo de apagón]
     end
 
     A1 --> UC1
@@ -29,6 +30,7 @@ flowchart TB
     A1 --> UC5
     A1 --> UC6
     A1 --> UC7
+    A1 --> UC12
     A2 --> UC3
     A2 --> UC4
 
@@ -74,6 +76,31 @@ sequenceDiagram
 
 ---
 
+## 2.b Diagrama de secuencia — Riesgo de apagón (simulación operativa)
+
+```mermaid
+sequenceDiagram
+    participant O as Operador
+    participant D as Dashboard
+    participant R as app_riesgo_apagon_panel
+    participant E as riesgo.py
+    participant M as Mapa
+
+    O->>D: Abre panel Riesgo de apagón
+    O->>R: Ajusta sliders o preset (colapso/preventivo)
+    R->>E: evaluar_riesgo_apagon_desde_snapshots(snapshot_actual)
+    E-->>R: risk_score actual + componentes
+    R->>E: evaluar_riesgo_apagon_desde_snapshots(escenario_horizonte)
+    E-->>R: risk_score estimado + umbral + alerta
+    R->>O: Mostrar tendencia (15/30/45/60) y playbook
+    O->>R: Activar "Aplicar escenario al mapa"
+    R->>D: Guardar riesgo_map_override en session_state
+    D->>M: Renderizar mapa con estados simulados
+    M-->>O: Visualización contingencia (sin persistir en Cassandra)
+```
+
+---
+
 ## 3. Diagrama de componentes
 
 ```mermaid
@@ -103,6 +130,11 @@ flowchart TB
 
     subgraph Visualizacion
         APP[app_visualizacion.py<br/>Streamlit + Folium]
+        RISK[app_riesgo_apagon_panel.py<br/>Simulación + playbook]
+    end
+
+    subgraph AnaliticaRiesgo
+        RIESGO[procesamiento/deteccion_apagon/riesgo.py]
     end
 
     EM --> PROD
@@ -114,6 +146,9 @@ flowchart TB
     SPARK --> CASS
     SPARK --> HIVE
     CASS --> APP
+    APP --> RISK
+    RISK --> RIESGO
+    RISK --> APP
 ```
 
 ---
@@ -161,6 +196,22 @@ classDiagram
         +_generar_informe_cambios_ciclo()
     }
 
+    class AppRiesgoApagonPanel {
+        +render_riesgo_apagon_panel()
+        +_simular_escenario()
+        +_aplicar_preset_colapso()
+        +_aplicar_preset_preventivo()
+    }
+
+    class RiesgoApagon {
+        +evaluar_riesgo_apagon_desde_snapshots()
+        +evaluar_riesgo_apagon_metricas()
+        +componente_voltaje()
+        +componente_frecuencia()
+        +componente_perdida_generacion()
+        +componente_cascada()
+    }
+
     class CassandraSession {
         +execute(query)
     }
@@ -171,6 +222,8 @@ classDiagram
     ProcesamientoGrafos --> ConfigNodos : usa
     AppVisualizacion --> Config : usa
     AppVisualizacion --> CassandraSession : usa
+    AppVisualizacion --> AppRiesgoApagonPanel : integra
+    AppRiesgoApagonPanel --> RiesgoApagon : usa
 ```
 
 ---
