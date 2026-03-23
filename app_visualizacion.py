@@ -1218,8 +1218,8 @@ def _parse_cli_tabular_without_header(text: str, headers: Optional[List[str]] = 
 def _cuadro_headers_by_key(key: str) -> Optional[List[str]]:
     mapping: Dict[str, List[str]] = {
         "consumo": ["id_subestacion", "total_mwh", "potencia_media_mw"],
-        "sostenibilidad": ["fecha", "carbon_intensity_g_co2_kwh", "renewable_pct", "carga_media_subestaciones_mw"],
-        "red": ["origen", "destino", "estado", "motivo_fallo", "flujo_mw", "timestamp_evento"],
+        "sostenibilidad": ["fecha", "uso_medio_pct", "pico_potencia_mw", "eventos_criticos"],
+        "red": ["origen", "destino", "estado", "motivo", "flujo_mw", "timestamp"],
         "pagerank": ["id_subestacion", "pagerank_score", "voltaje_kv", "potencia_mw", "fecha_proceso"],
         "consumo_fecha": ["id_subestacion", "fecha", "energia_mwh", "num_eventos_sobrecarga", "num_eventos_alerta"],
         "clima": ["subestacion_nombre", "temperatura", "humedad", "descripcion", "fecha_captura"],
@@ -2559,13 +2559,23 @@ _CUADRO_MANDO_QUERIES: List[Tuple[str, str, str]] = [
         SELECT id_subestacion, SUM(energia_mwh) AS total_mwh, AVG(potencia_max_mw) AS potencia_media_mw
         FROM {HIVE_DB}.consumo_energetico_diario GROUP BY id_subestacion ORDER BY total_mwh DESC LIMIT 15;
     """),
-    ("Sostenibilidad — carbono y renovables", "sostenibilidad", f"""
-        SELECT fecha, carbon_intensity_g_co2_kwh, renewable_pct, carga_media_subestaciones_mw
-        FROM {HIVE_DB}.sostenibilidad_carbono_hist ORDER BY fecha DESC LIMIT 20;
+    ("Sostenibilidad operativa (proxy desde histórico)", "sostenibilidad", f"""
+        SELECT
+            CONCAT(CAST(anio AS STRING), '-', LPAD(CAST(mes AS STRING), 2, '0'), '-', LPAD(CAST(dia AS STRING), 2, '0')) AS fecha,
+            ROUND(AVG(uso_pct), 2) AS uso_medio_pct,
+            ROUND(MAX(potencia_mw), 2) AS pico_potencia_mw,
+            SUM(CASE WHEN lower(estado) IN ('alerta','sobrecarga') THEN 1 ELSE 0 END) AS eventos_criticos
+        FROM {HIVE_DB}.subestaciones_historico
+        GROUP BY anio, mes, dia
+        ORDER BY fecha DESC
+        LIMIT 20;
     """),
     ("Eventos de red (alertas y sobrecargas)", "red", f"""
-        SELECT origen, destino, estado, motivo_fallo, flujo_mw, timestamp_evento
-        FROM {HIVE_DB}.red_electrica_hist WHERE estado != 'OK' ORDER BY timestamp_evento DESC LIMIT 15;
+        SELECT src AS origen, dst AS destino, estado, motivo, flujo_mw, timestamp
+        FROM {HIVE_DB}.lineas_historico
+        WHERE lower(estado) IN ('alerta', 'sobrecarga')
+        ORDER BY timestamp DESC
+        LIMIT 15;
     """),
     ("Nodos críticos (PageRank histórico)", "pagerank", f"""
         SELECT id_subestacion, pagerank_score, voltaje_kv, potencia_mw, fecha_proceso
@@ -2576,14 +2586,32 @@ _CUADRO_MANDO_QUERIES: List[Tuple[str, str, str]] = [
         FROM {HIVE_DB}.consumo_energetico_diario ORDER BY fecha DESC LIMIT 20;
     """),
     ("Clima en subestaciones", "clima", f"""
-        SELECT subestacion_nombre, temperatura, humedad, descripcion, fecha_captura
-        FROM {HIVE_DB}.clima_hist ORDER BY fecha_captura DESC LIMIT 15;
+        SELECT id_subestacion AS subestacion_nombre, temperatura, humedad, estado AS descripcion, timestamp AS fecha_captura
+        FROM {HIVE_DB}.subestaciones_historico
+        ORDER BY timestamp DESC
+        LIMIT 15;
     """),
     ("Subestaciones histórico (persistencia)", "subest_hist", f"""
         SELECT id_subestacion, voltaje_kv, potencia_mw, estado, timestamp FROM {HIVE_DB}.subestaciones_historico LIMIT 20;
     """),
     ("Eventos de red histórico", "eventos_hist", f"""
-        SELECT tipo_entidad, id_entidad, estado, motivo, timestamp FROM {HIVE_DB}.eventos_red_historico ORDER BY timestamp DESC LIMIT 15;
+        SELECT
+            'linea' AS tipo_entidad,
+            CONCAT(src, '->', dst) AS id_entidad,
+            estado,
+            motivo,
+            timestamp
+        FROM {HIVE_DB}.lineas_historico
+        UNION ALL
+        SELECT
+            'subestacion' AS tipo_entidad,
+            id_subestacion AS id_entidad,
+            estado,
+            motivo,
+            timestamp
+        FROM {HIVE_DB}.subestaciones_historico
+        ORDER BY timestamp DESC
+        LIMIT 15;
     """),
     ("Tablas disponibles", "tablas", f"USE {HIVE_DB}; SHOW TABLES;"),
 ]
@@ -2708,8 +2736,8 @@ def _render_cuadro_mando_directivo() -> None:
     st.divider()
     st.markdown("##### Resumen de tablas del histórico")
     st.caption(
-        "Tablas en Hive: consumo_energetico_diario, sostenibilidad_carbono_hist, red_electrica_hist, "
-        "metricas_subestaciones_hist, clima_hist, clima_renovables_hist; "
+        "Tablas en Hive: consumo_energetico_diario, subestaciones_historico, lineas_historico, "
+        "metricas_subestaciones_hist, clima_historico; "
         "persistencia_hive añade: subestaciones_historico, lineas_historico, eventos_red_historico."
     )
 

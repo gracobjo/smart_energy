@@ -125,7 +125,7 @@
 1. El directivo abre la pestaña **"📊 Cuadro de mando"**.
 2. El directivo pulsa un botón de informe (p. ej. "Consumo energético total (MWh)").
 3. El sistema ejecuta la consulta Hive correspondiente en **modo rápido** (timeout corto para no bloquear la UI).
-4. El sistema muestra los resultados en una tabla (parser tabular estándar o fallback TSV sin cabecera).
+4. El sistema muestra los resultados en una tabla (parser tabular estándar o fallback TSV sin cabecera), priorizando consultas sobre tablas históricas con carga activa (`subestaciones_historico`, `lineas_historico`, `consumo_energetico_diario`, `metricas_subestaciones_hist`).
 5. El directivo puede pulsar "Limpiar resultado" o elegir otro informe.
 
 **Postcondiciones:** Informe mostrado en pantalla.
@@ -140,6 +140,7 @@
 4b. La consulta devuelve 0 filas o error de tabla inexistente.
 5b. El sistema muestra "Sin filas" o el mensaje de error.
 6b. El directivo debe asegurar que el pipeline ha generado datos históricos.
+7b. Si el informe corresponde a sostenibilidad/clima renovables, debe estar activada la persistencia post-ingesta (`PERSIST_HIVE_AFTER_INGEST=1`).
 
 #### Escenario alternativo 2c: Datos existen pero formato CLI no estándar
 

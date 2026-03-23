@@ -94,6 +94,9 @@
 | clima_hist | dia | Temperatura, humedad en subestaciones |
 | clima_renovables_hist | anio, mes | Clima en zonas solares/eólicas |
 
+**Nota operativa:** El cuadro de mando consume por defecto tablas con carga continua desde `persistencia_hive.py` (`subestaciones_historico`, `lineas_historico`, `consumo_energetico_diario`, `metricas_subestaciones_hist`).  
+Las tablas ESG (`sostenibilidad_carbono_hist`, `clima_renovables_hist`) se rellenan en flujo opcional de post-ingesta.
+
 ---
 
 ## 3. Diseño de componentes
@@ -118,6 +121,7 @@
 - **Módulos:** `app_visualizacion_kdd_panel` (herramientas), `config_nodos` (topología).
 - **Estados:** session_state para paso_15min, prev_cycle_snapshot, fase0_check.
 - **Cuadro de mando Hive:** consultas SQL con modo rápido (`quick_check`) para no bloquear UI; parser principal (tabla con `|`) + fallback TSV sin cabecera para renderizar datos legibles cuando `spark-sql` devuelve salida tabulada.
+- **Alineación frontend-Hive:** informes de sostenibilidad operativa, eventos y clima se basan en tablas históricas efectivamente pobladas (`subestaciones_historico`/`lineas_historico`) para reducir casos de “sin datos” en UI.
 
 ### 3.4 persistencia_hive.py
 
