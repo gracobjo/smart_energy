@@ -37,6 +37,7 @@ def _simular_escenario(
     incremento_carga_pct: float,
     perdida_capacidad_pct: float,
     lineas_extra_anomalas: int,
+    cascada_virtual_pct: float = 0.0,
 ) -> Dict[str, Any]:
     sub_sim = copy.deepcopy(subestaciones or {})
     lin_sim = copy.deepcopy(lineas or {})
@@ -53,7 +54,9 @@ def _simular_escenario(
             if uso_orig > 0.0:
                 pot_orig = cap_orig * (uso_orig / 100.0)
             else:
-                pot_orig = cap_orig * 0.35
+                # Base dinámica en modo demo: a mayor estrés de carga, mayor ocupación inicial.
+                base_demo = 0.35 + min(0.60, max(0.0, incremento_carga_pct) / 100.0)
+                pot_orig = cap_orig * min(0.95, base_demo)
 
         pot = pot_orig * (1.0 + incremento_carga_pct / 100.0)
         cap = cap_orig * (1.0 - perdida_capacidad_pct / 100.0)
@@ -65,7 +68,8 @@ def _simular_escenario(
         v_base = _to_float(s.get("voltaje_kv"), 220.0)
         v_delta = 0.0
         if uso >= 85.0:
-            v_delta = -min(12.0, (uso - 85.0) * 0.6)
+            # En estrés alto simulamos infratensión más marcada para acercar componente voltaje a zona crítica.
+            v_delta = -min(35.0, (uso - 85.0) * 1.8)
         v = v_base + v_delta
 
         est = _estado_estimado_subestacion(v, uso)
@@ -92,6 +96,22 @@ def _simular_escenario(
             l["estado"] = "alerta"
             if not l.get("motivo"):
                 l["motivo"] = "Escenario de contingencia (propagación)."
+
+    # 3) Si no hay líneas reales, inyectar líneas virtuales para simular cascada.
+    if not lin_sim:
+        virt_total = 20
+        pct = max(0.0, min(100.0, float(cascada_virtual_pct)))
+        virt_anom = int(round((pct / 100.0) * virt_total))
+        for i in range(virt_total):
+            estado = "alerta" if i < virt_anom else "ok"
+            lin_sim[f"virtual_{i}"] = {
+                "src": f"V{i}",
+                "dst": f"V{i+1}",
+                "flujo_mw": 100.0 if estado == "alerta" else 60.0,
+                "capacidad_mw": 100.0,
+                "estado": estado,
+                "motivo": "Cascada virtual (simulación)" if estado != "ok" else "",
+            }
 
     return {"subestaciones": sub_sim, "lineas": lin_sim}
 
@@ -220,10 +240,39 @@ def render_riesgo_apagon_panel(
             key="riesgo_perdida_cap_pct",
         )
 
+    c_p1, c_p2 = st.columns(2)
+    with c_p1:
+        if st.button("Preset: Colapso inminente", use_container_width=True, key="riesgo_preset_colapso"):
+            st.session_state["riesgo_inc_carga_pct"] = 35
+            st.session_state["riesgo_perdida_cap_pct"] = 25
+            st.session_state["riesgo_horizonte_min"] = 15
+            st.session_state["riesgo_freq_hz"] = "49.2"
+            if "riesgo_cascada_virtual_pct" in st.session_state:
+                st.session_state["riesgo_cascada_virtual_pct"] = 80
+            st.rerun()
+    with c_p2:
+        if st.button("Preset: Preventivo", use_container_width=True, key="riesgo_preset_preventivo"):
+            st.session_state["riesgo_inc_carga_pct"] = 10
+            st.session_state["riesgo_perdida_cap_pct"] = 5
+            st.session_state["riesgo_horizonte_min"] = 30
+            st.session_state["riesgo_freq_hz"] = ""
+            if "riesgo_cascada_virtual_pct" in st.session_state:
+                st.session_state["riesgo_cascada_virtual_pct"] = 20
+            st.rerun()
+
     max_lineas = max(0, len(lineas))
+    cascada_virtual_pct = 0.0
     if max_lineas <= 0:
-        st.caption("Sin líneas disponibles en el snapshot actual; la simulación de cascada en líneas queda en 0.")
+        st.caption("Sin líneas reales en el snapshot; se usa cascada virtual para simular propagación.")
         lineas_extra = 0
+        cascada_virtual_pct = st.slider(
+            "Cascada virtual (%)",
+            min_value=0,
+            max_value=100,
+            value=30,
+            step=5,
+            key="riesgo_cascada_virtual_pct",
+        )
     else:
         lineas_extra = st.slider(
             "Líneas adicionales en estado anómalo (simulación de cascada)",
@@ -240,6 +289,7 @@ def render_riesgo_apagon_panel(
         incremento_carga_pct=float(incremento_carga_pct),
         perdida_capacidad_pct=float(perdida_capacidad_pct),
         lineas_extra_anomalas=int(lineas_extra),
+        cascada_virtual_pct=float(cascada_virtual_pct),
     )
     sub_sim = escenario["subestaciones"]
     lin_sim = escenario["lineas"]
@@ -275,6 +325,7 @@ def render_riesgo_apagon_panel(
             incremento_carga_pct=float(incremento_carga_pct) * factor,
             perdida_capacidad_pct=float(perdida_capacidad_pct) * min(1.5, factor),
             lineas_extra_anomalas=int(round(lineas_extra * min(1.5, factor))),
+            cascada_virtual_pct=float(cascada_virtual_pct) * min(1.5, factor),
         )
         out_h = evaluar_riesgo_apagon_desde_snapshots(
             esc["subestaciones"],
