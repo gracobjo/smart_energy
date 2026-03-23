@@ -39,7 +39,7 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 | Punto del PDF | Qué pide | Estado en el proyecto | ¿Cumple? |
 |---------------|----------|------------------------|----------|
 | Fuentes externas | **NiFi** consumiendo API pública (OpenWeather, etc.) y logs GPS simulados | NiFi: InvokeHTTP OpenWeather, ExecuteStreamCommand (producer.py), GetFile (GPS) | Sí |
-| Streaming | Publicar en Kafka con **dos temas**: "Datos Crudos" y "Datos Filtrados" | Un solo tema `transporte_status` (datos ya enriquecidos) | Parcial |
+| Streaming | Publicar en Kafka con temas de ingesta cruda y procesada | Temas raw operativos (`energy_raw`, `weather_raw`, `gps_raw`); no hay separación estricta raw/filtered para todos los flujos | Parcial |
 | Registro | Copia "raw" en HDFS para auditoría | JSON de ingesta guardado en HDFS | Sí |
 
 **Conclusión Fase I:** NiFi integrado (API + logs GPS + ExecuteStreamCommand); topics `energy_raw`, `weather_raw`, `gps_raw`.
@@ -52,7 +52,7 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 |---------------|----------|------------------------|----------|
 | Limpieza | **Spark SQL** para normalizar, nulos y duplicados | Limpieza en Python (`limpiar_datos_antes_cassandra`) antes de escribir; se podría hacer con Spark SQL | Parcial |
 | Enriquecimiento | Cruzar streaming Kafka con **datos maestros en Hive** | No se cruza con tablas Hive; se usa `config_nodos` y payload de ingesta | Parcial / No |
-| Análisis de grafos | GraphFrames: nodos (almacenes), aristas (rutas), camino más corto o comunidades | GraphFrames con nodos/aristas, autosanación, ShortestPath, PageRank | Sí |
+| Análisis de grafos | GraphFrames: nodos (subestaciones), aristas (líneas), camino más corto o comunidades | GraphFrames con nodos/aristas de red eléctrica, autosanación, ShortestPath, PageRank | Sí |
 
 **Conclusión Fase II:** Grafos sí; limpieza existe pero no está formulada como “Spark SQL”; enriquecimiento con datos maestros en Hive **no** implementado.
 
@@ -63,7 +63,7 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 | Punto del PDF | Qué pide | Estado en el proyecto | ¿Cumple? |
 |---------------|----------|------------------------|----------|
 | Ventanas de tiempo | **Structured Streaming** con ventanas de **15 minutos** (media de retrasos) | Procesamiento por lotes (lectura desde HDFS); ciclo cada 15 min pero no ventanas de ventana en Structured Streaming | Parcial / No |
-| Carga multicapa | Hive: agregados histórico; Cassandra: último estado por vehículo | Sí: Hive histórico, Cassandra estado actual (nodos, aristas, camiones, PageRank) | Sí |
+| Carga multicapa | Hive: agregados histórico; Cassandra: último estado operativo | Sí: Hive histórico + Cassandra tiempo real (subestaciones, líneas, PageRank, puntos de fallo) | Sí |
 
 **Conclusión Fase III:** Carga dual Hive/Cassandra sí; **Structured Streaming con ventanas de 15 min** no está como en el enunciado.
 
@@ -93,13 +93,14 @@ El proyecto es **Smart Grid** (red eléctrica). Este documento enlaza con el PDF
 
 ---
 
-## Implementado (alineado al PDF)
+## Implementado (alineado al alcance Smart Grid)
 
-- **Kafka**: Dos temas `transporte_raw` y `transporte_filtered`. Ingesta publica en ambos; crear con `bash sql/crear_temas_kafka.sh`.
-- **Structured Streaming**: `procesamiento/streaming_ventanas_15min.py` (ventanas 15 min sobre `transporte_filtered`).
-- **Enriquecimiento Hive**: `enriquecer_desde_hive()` en procesamiento; tabla `nodos_maestro`; enriquece nodos con `hub`.
-- **DAG mensual**: `orquestacion/dag_mensual_retrain_limpieza.py` (día 1 de cada mes: limpieza HDFS + re-entrenamiento grafos).
-- **YARN**: `SPARK_MASTER=yarn` o `spark-submit --master yarn`; ver `docs/YARN_Y_SPARK.md`.
+- **Kafka (ingesta)**: topics `energy_raw`, `weather_raw`, `gps_raw` (producer + NiFi).
+- **NiFi 2.6.0**: flujo Fase I con ExecuteStreamCommand (`producer.py`), InvokeHTTP (OpenWeather), GetFile (GPS) y publicación en Kafka.
+- **Procesamiento Spark/GraphFrames**: construcción de grafo eléctrico, autosanación, PageRank y persistencia dual.
+- **Persistencia dual**: Cassandra (estado actual) + Hive (histórico y reporting).
+- **DAG mensual**: `orquestacion/dag_mensual_retrain_limpieza.py` (limpieza HDFS + reentrenamiento).
+- **YARN**: opcional (`SPARK_MASTER=yarn`), por defecto ejecución local.
 
 ## Qué falta para alinearse al PDF
 

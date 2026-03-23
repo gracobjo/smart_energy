@@ -1483,6 +1483,76 @@ def _fase2_verificar_cassandra() -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+def _estado_consultas_cassandra(host: str) -> Dict[str, Any]:
+    """
+    Estado de consultas Cassandra para frontend:
+    - available: hay sesión al keyspace
+    - has_data: hay filas en tablas base usadas por paneles
+    """
+    if Cluster is None:
+        return {
+            "available": False,
+            "has_data": False,
+            "error": "cassandra-driver no instalado.",
+            "counts": {},
+        }
+    try:
+        s = obtener_session_cassandra(host or CASSANDRA_HOST)
+        if not s:
+            return {
+                "available": False,
+                "has_data": False,
+                "error": "No se pudo conectar a Cassandra.",
+                "counts": {},
+            }
+        counts: Dict[str, int] = {}
+        for table in [
+            "subestaciones_estado",
+            "lineas_estado",
+            "pagerank_subestaciones",
+            "puntos_fallo_unicos",
+        ]:
+            cnt = s.execute(f"SELECT COUNT(*) AS cnt FROM {KEYSPACE}.{table};").one().cnt
+            counts[table] = int(cnt or 0)
+        has_data = counts.get("subestaciones_estado", 0) > 0 and counts.get("lineas_estado", 0) > 0
+        return {"available": True, "has_data": has_data, "counts": counts}
+    except Exception as e:
+        return {"available": False, "has_data": False, "error": str(e), "counts": {}}
+
+
+def _estado_consultas_hive() -> Dict[str, Any]:
+    """
+    Estado de consultas Hive para frontend:
+    - available: CLI usable + catálogo accesible
+    - has_data: hay parquet en tablas base del cuadro de mando
+    """
+    try:
+        rc, out = _ejecutar_consulta_hive("SHOW DATABASES;", catalog_probe=True, quick_check=True)
+        available = rc == 0 and _hive_catalog_db_in_show_databases_output(out or "", HIVE_DB)
+        if not available:
+            return {"available": False, "has_data": False, "error": (out or "").strip()[:400]}
+
+        tables = [
+            "subestaciones_historico",
+            "lineas_historico",
+            "consumo_energetico_diario",
+            "metricas_subestaciones_hist",
+        ]
+        has_by_table: Dict[str, Optional[bool]] = {}
+        for t in tables:
+            has_by_table[t] = _hive_table_has_parquet(t)
+        positives = [v for v in has_by_table.values() if v is True]
+        has_data = len(positives) >= 2
+        return {"available": True, "has_data": has_data, "tables": has_by_table}
+    except Exception as e:
+        return {"available": False, "has_data": False, "error": str(e)}
+
+
+def _estado_consultas_default() -> Dict[str, Any]:
+    """Estado inicial no bloqueante para el semáforo de consultas."""
+    return {"available": None, "has_data": None, "pending": True}
+
+
 def _nifi_home() -> Path:
     p = Path(NIFI_HOME)
     return p if p.exists() else BASE / "nifi-2.6.0"
@@ -2783,6 +2853,50 @@ def main():
     session = obtener_session_cassandra(host)
     modo_demo = session is None
 
+    # Semáforo global de disponibilidad de consultas (visible al abrir la app).
+    # No bloquea el render inicial: estado pendiente hasta refresco manual.
+    if "estado_consultas_hive" not in st.session_state:
+        st.session_state["estado_consultas_hive"] = _estado_consultas_default()
+    if "estado_consultas_cassandra" not in st.session_state:
+        st.session_state["estado_consultas_cassandra"] = _estado_consultas_default()
+
+    hive_state = st.session_state.get("estado_consultas_hive", {})
+    cass_state = st.session_state.get("estado_consultas_cassandra", {})
+    st.markdown("#### Estado global de consultas")
+    sg1, sg2 = st.columns(2)
+    with sg1:
+        if hive_state.get("pending"):
+            st.info("⏳ Hive: estado pendiente (pulsa refrescar)")
+        elif hive_state.get("available") and hive_state.get("has_data"):
+            st.success("✅ Hive listo (disponible + con datos)")
+        elif hive_state.get("available"):
+            st.warning("⚠️ Hive disponible, pero con datos incompletos")
+        else:
+            st.error("❌ Hive no disponible")
+    with sg2:
+        if cass_state.get("pending"):
+            st.info("⏳ Cassandra: estado pendiente (pulsa refrescar)")
+        elif cass_state.get("available") and cass_state.get("has_data"):
+            st.success("✅ Cassandra lista (disponible + con datos)")
+        elif cass_state.get("available"):
+            st.warning("⚠️ Cassandra disponible, pero con datos incompletos")
+        else:
+            st.error("❌ Cassandra no disponible")
+
+    # Semáforo compacto también en sidebar (siempre visible).
+    with st.sidebar:
+        st.divider()
+        st.markdown("**Estado consultas (rápido)**")
+        hive_icon = "⏳" if hive_state.get("pending") else ("✅" if (hive_state.get("available") and hive_state.get("has_data")) else ("⚠️" if hive_state.get("available") else "❌"))
+        cass_icon = "⏳" if cass_state.get("pending") else ("✅" if (cass_state.get("available") and cass_state.get("has_data")) else ("⚠️" if cass_state.get("available") else "❌"))
+        st.caption(f"{hive_icon} Hive")
+        st.caption(f"{cass_icon} Cassandra")
+        if st.button("Refrescar estado consultas", key="sidebar_refresh_estado_consultas", use_container_width=True):
+            with st.spinner("Actualizando estado de consultas..."):
+                st.session_state["estado_consultas_hive"] = _estado_consultas_hive()
+                st.session_state["estado_consultas_cassandra"] = _estado_consultas_cassandra(host)
+            st.rerun()
+
     # =========================
     # Demostración KDD (paso a paso)
     # =========================
@@ -3080,6 +3194,43 @@ def main():
             "y que el dashboard refleje telemetría. Usa **Monitorización → consultas por capa** (Hive + Cassandra). "
             "Si Cassandra está vacía, verás modo demo."
         )
+        st.markdown("#### Check de consultas (disponible + con datos)")
+        if st.button("Actualizar check Hive/Cassandra", use_container_width=False, key="validacion_refresh_checks"):
+            with st.spinner("Comprobando estado de consultas Hive..."):
+                st.session_state["estado_consultas_hive"] = _estado_consultas_hive()
+            with st.spinner("Comprobando estado de consultas Cassandra..."):
+                st.session_state["estado_consultas_cassandra"] = _estado_consultas_cassandra(host)
+
+        hive_state = st.session_state.get("estado_consultas_hive", {})
+        cass_state = st.session_state.get("estado_consultas_cassandra", {})
+        ch1, ch2 = st.columns(2)
+        with ch1:
+            if hive_state.get("pending"):
+                st.info("⏳ Hive: pendiente de comprobación.")
+            elif hive_state.get("available") and hive_state.get("has_data"):
+                st.success("✅ Hive: consultas disponibles y con datos.")
+            elif hive_state.get("available"):
+                st.warning("⚠️ Hive: disponible, pero con datos incompletos o vacíos.")
+            else:
+                st.error("❌ Hive: consultas no disponibles.")
+            if hive_state.get("tables"):
+                st.caption(f"Detalle tablas Hive: {hive_state['tables']}")
+            if hive_state.get("error"):
+                st.caption(f"Detalle técnico Hive: {hive_state['error'][:250]}")
+        with ch2:
+            if cass_state.get("pending"):
+                st.info("⏳ Cassandra: pendiente de comprobación.")
+            elif cass_state.get("available") and cass_state.get("has_data"):
+                st.success("✅ Cassandra: consultas disponibles y con datos.")
+            elif cass_state.get("available"):
+                st.warning("⚠️ Cassandra: disponible, pero con datos incompletos o vacíos.")
+            else:
+                st.error("❌ Cassandra: consultas no disponibles.")
+            if cass_state.get("counts"):
+                st.caption(f"Conteos Cassandra: {cass_state['counts']}")
+            if cass_state.get("error"):
+                st.caption(f"Detalle técnico Cassandra: {cass_state['error'][:250]}")
+
         colA, colB = st.columns(2)
         with colA:
             if st.button("Comprobar Cassandra (conteos)", use_container_width=True):
