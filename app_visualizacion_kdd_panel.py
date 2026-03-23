@@ -53,10 +53,19 @@ def render_kdd_tools_panel(app: Any, host: str) -> None:
         st.link_button("2 · YARN (8088)", f"http://{ui_host}:8088", use_container_width=True)
     with c3:
         st.link_button("3 · Job Hist (19888)", f"http://{ui_host}:19888", use_container_width=True)
+        st.caption("Arrancar abajo si no abre")
     with c4:
         st.link_button("4 · Spark Hist (18080)", f"http://{ui_host}:18080", use_container_width=True)
     with c5:
         st.link_button("5 · Kafdrop (9090)", f"http://{ui_host}:9090", use_container_width=True)
+
+    with st.expander("Si los enlaces (9870, 8088, 19888) no abren"):
+        st.markdown(
+            "1. **Job History (19888)**: Pulsa el botón **Job History (19888)** abajo para arrancar el servidor.\n\n"
+            "2. **Host 10.0.2.15 en VM**: Si usas la IP de la interfaz y falla, prueba con **localhost** o **127.0.0.1** "
+            "en el campo Host (desde la misma máquina donde corre el dashboard).\n\n"
+            "3. **HDFS/YARN**: Arranca con **HDFS + YARN** antes de abrir 9870 y 8088."
+        )
 
     st.markdown("##### 2) Kafka")
     st.caption("Local: `./scripts/instalar_kafka_local.sh` · Docker: `./docker/instalar_docker_kafka.sh`")
@@ -104,9 +113,10 @@ def render_kdd_tools_panel(app: Any, host: str) -> None:
             st.caption(msg[:600] if msg else "—")
     with y2:
         if st.button("Job History (19888)", key="kdd_btn_jhs"):
-            with st.spinner("..."):
+            with st.spinner("Arrancando Job History Server..."):
                 ok, msg = app._start_job_history_server()
-            st.caption(msg[:600] if msg else "—")
+            (st.success(msg) if ok else st.error(msg))
+            st.caption("Si el enlace no abre, púlsalo antes de abrir el enlace web.")
     s1, s2 = st.columns(2)
     with s1:
         if st.button("Kafdrop (9090)", key="kdd_btn_kafdrop2"):

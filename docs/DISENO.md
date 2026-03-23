@@ -48,7 +48,8 @@
                              ▲
                              │
      ┌───────────────────────┴───────────────────────┐
-     │              Airflow 2.10.x                    │
+     │              Airflow 2.10.x / 3.x              │
+     │  api-server + dag-processor + scheduler        │
      │  DAGs: arranque, parar, comprobar, KDD fases,  │
      │        consultas Hive/Cassandra, informes      │
      └───────────────────────────────────────────────┘
@@ -65,7 +66,7 @@
 | Estado tiempo real | Cassandra | Cassandra 5.0 |
 | Histórico | Hive | Hive 4.x / Spark SQL |
 | Visualización | app_visualizacion.py | Streamlit, Folium |
-| Orquestación | DAGs Airflow | Airflow 2.10.x |
+| Orquestación | DAGs Airflow | Airflow 2.10.x / 3.x (api-server, dag-processor, scheduler) |
 | Informes | generar_informe_fases.py | Python |
 
 ---
@@ -125,9 +126,12 @@
 ### 3.5 NiFi (ingesta alternativa)
 
 - **Responsabilidad:** Orquestar ingesta vía flujos visuales.
-- **Procesadores:** GenerateFlowFile (trigger), ExecuteStreamCommand (producer.py), InvokeHTTP (OpenWeather), GetFile (GPS), PublishKafka, PutHDFS.
+- **Procesadores (8):** NiFi_F1_GenerateTrigger, InvokeHTTP_OpenWeather, JoltTransformJSON_ToSchema, PublishKafka_weather_raw, PublishKafka_energy_raw, ExecuteProducer (producer.py), GetFile_GPS, PublishKafka_gps_raw. Tabla alineada en dashboard.
 - **Controller Service:** Kafka3ConnectionService para bootstrap Kafka.
+- **Dashboard:** Crear, conectar, alinear (posiciones en canvas), arrancar/parar. Búsqueda con `includeDescendantGroups` para grupos anidados. InvokeHTTP usa Response (no Original) y auto-termina Original. ExecuteStreamCommand usa "Command Path".
+- **Provenance:** API asíncrona (POST→poll→DELETE); script `nifi_flujo_comprobar.py` corregido.
 - **Flow definition:** `nifi/smart_grid_flow_definition.json` importable desde UI.
+- **Funcionalidades dashboard:** Crear procesadores (Fase I demo), alinear en canvas, conectar relaciones correctas (InvokeHTTP Response→Jolt; Original auto-terminada), reparar auto-terminación (ExecuteProducer, GetFile GPS), provenance API (búsqueda asíncrona). Procesadores en subgrupos vía `includeDescendantGroups=true`. Credenciales en `.env` (NIFI_USER, NIFI_PASS).
 
 ### 3.6 api/ (API REST Smart Grid)
 
@@ -187,12 +191,16 @@
 | HIVE_DB | smart_grid_analytics | Base Hive |
 | ELECTRICITY_MAPS_API_KEY | — | API Electricity Maps |
 | API_WEATHER_KEY | — | API OpenWeather |
+| NIFI_USER, NIFI_PASS | — | Credenciales NiFi (ver nifi-app.log o set-single-user-credentials) |
+| AIRFLOW_USER, AIRFLOW_PASS | admin / — | Credenciales Airflow UI (ver simple_auth_manager_passwords.json.generated) |
+| NIFI_USER / NIFI_PASS | — | Credenciales API NiFi (ver nifi-app.log o set-single-user-credentials) |
+| AIRFLOW_USER / AIRFLOW_PASS | admin / (ver abajo) | Credenciales Airflow UI; 3.x: contraseña en `~/airflow/simple_auth_manager_passwords.json.generated` |
 
 ### 5.3 Scripts de apoyo
 
 | Script | Función |
 |--------|---------|
-| scripts/iniciar_servicios.sh | Arranque HDFS, Kafka, Cassandra, Airflow, calentamiento Hive (opción --only airflow) |
+| scripts/iniciar_servicios.sh | Arranque HDFS, Kafka, Cassandra, Airflow (api-server + dag-processor + scheduler), calentamiento Hive (opción --only airflow) |
 | scripts/parar_servicios.sh | Parada HDFS, Kafka, Cassandra, NiFi, Airflow (opción --only airflow) |
 | scripts/comprobar_servicios.sh | Verificación de puertos y CLI |
 | scripts/generar_informe_fases.py | Informe consolidado de todas las fases KDD |
@@ -206,7 +214,18 @@
 | scripts/instalar_hive_java21.sh | Instalación Hive 4.x |
 | scripts/instalar_nifi_260.sh | Instalación NiFi 2.6.0 |
 
-### 5.4 DAGs de Airflow
+### 5.4 Configuración de Airflow (primera vez o reinstalación)
+
+| Paso | Acción | Referencia |
+|------|--------|------------|
+| 1 | Sincronizar DAGs: `./scripts/sync_dags_airflow.sh` | Copia `orquestacion/dag_*.py` → `~/airflow/dags/` |
+| 2 | Arrancar: `./scripts/iniciar_servicios.sh --only airflow` | Levanta api-server, dag-processor, scheduler |
+| 3 | Obtener contraseña | Airflow 3.x: `~/airflow/simple_auth_manager_passwords.json.generated`; ver `docs/CREDENCIALES_UI.md` |
+| 4 | Acceder a http://localhost:8080 | Usuario `admin`; contraseña del paso 3 |
+
+**Nota:** En Airflow 3.x el **dag-processor** es obligatorio para que los DAGs aparezcan en la UI. Sin él se muestra "0 DAGs".
+
+### 5.5 DAGs de Airflow
 
 | DAG | Función |
 |-----|---------|
@@ -221,7 +240,7 @@
 | dag_maestro_smart_grid | Pipeline cada 15 min (ingesta + procesamiento) |
 | dag_mensual_retrain_limpieza_smart_grid | Limpieza HDFS + re-entrenamiento mensual |
 
-### 5.5 Pipeline streaming PySpark (`procesamiento/smart_grid_streaming/`)
+### 5.6 Pipeline streaming PySpark (`procesamiento/smart_grid_streaming/`)
 
 | Componente | Rol |
 |--------------|-----|
@@ -231,7 +250,7 @@
 
 **Documentación unificada:** [STREAMING_PYSPARK_QA.md](STREAMING_PYSPARK_QA.md). **Frontend:** pestaña **Streaming & QA** en Streamlit.
 
-### 5.6 Detección de riesgo de apagón (`procesamiento/deteccion_apagon/`)
+### 5.7 Detección de riesgo de apagón (`procesamiento/deteccion_apagon/`)
 
 | Elemento | Descripción |
 |----------|-------------|

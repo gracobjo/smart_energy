@@ -62,9 +62,10 @@ _stop_airflow() {
   if _should_run airflow; then
     echo "=== Parando Airflow ==="
     pkill -f "airflow api-server" 2>/dev/null || true
+    pkill -f "airflow dag-processor" 2>/dev/null || true
     pkill -f "airflow scheduler" 2>/dev/null || true
     pkill -f "airflow webserver" 2>/dev/null || true
-    echo "Airflow parado (api-server, scheduler, webserver)."
+    echo "Airflow parado (api-server, dag-processor, scheduler, webserver)."
   fi
 }
 

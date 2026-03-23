@@ -76,7 +76,7 @@ def main():
         "name": "NiFi_F1_ExecuteProducer",
         "position": {"x": 450, "y": 150},
         "config": {"properties": {
-            "Command": "python3",
+            "Command Path": "python3",
             "Command Arguments": "producer.py",
             "Working Directory": str(BASE),
         }},

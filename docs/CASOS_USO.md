@@ -71,11 +71,16 @@
 6. El sistema crea topics energy_raw y weather_raw.
 7. El sistema aplica esquema Cassandra (keyspace smart_grid).
 8. El sistema aplica esquema Hive (si HDFS y spark-sql/hive disponibles).
-9. El sistema arranca Airflow (api-server en 8080 + scheduler).
+9. El sistema arranca Airflow (**api-server** en 8080 + **dag-processor** + **scheduler**).
 10. El sistema arranca API Swagger (uvicorn en 8000, Swagger UI en /docs).
-11. El sistema muestra el resultado de la comprobación (hdfs_ok, kafka_ok, cassandra_ok, airflow_ok, api_ok, etc.).
+11. El sistema muestra el resultado de la comprobación (hdfs_ok, kafka_ok, cassandra_ok, airflow_ok, api_swagger, etc.).
 
 **Postcondiciones:** Servicios en ejecución (incl. Airflow UI, API Swagger en http://localhost:8000/docs); esquemas aplicados.
+
+#### Tareas previas (primera vez o DAGs faltantes)
+
+- **Sincronizar DAGs:** `./scripts/sync_dags_airflow.sh` — copia DAGs de `orquestacion/` a `~/airflow/dags/`.
+- **Obtener contraseña Airflow:** En Airflow 3.x (SimpleAuthManager), la contraseña está en `~/airflow/simple_auth_manager_passwords.json.generated` o en el log del api-server. Ver `docs/CREDENCIALES_UI.md`.
 
 #### Escenario alternativo 3a: HDFS ya responde
 
@@ -93,6 +98,17 @@
 5c. Cassandra falla (Java, puerto ocupado, etc.).
 6c. El sistema muestra error en cassandra_start.
 7c. Topics y Hive pueden aplicarse; Cassandra debe arrancarse manualmente.
+
+#### Escenario alternativo 3d: Airflow muestra "0 DAGs"
+
+9d. El dag-processor no está en marcha (Airflow 3.x) o faltan DAGs en `~/airflow/dags/`.
+10d. El operador ejecuta `./scripts/sync_dags_airflow.sh` y reinicia Airflow (`parar_servicios --only airflow` → `iniciar_servicios --only airflow`).
+11d. Tras 30–60 s, los DAGs aparecen. Ver `docs/AIRFLOW.md` (Problemas típicos).
+
+#### Escenario alternativo 3e: 401 Unauthorized en Airflow UI
+
+9e. Contraseña incorrecta (Airflow 3.x no usa `admin`/`admin` por defecto).
+10e. El operador consulta `docs/CREDENCIALES_UI.md` y obtiene la contraseña de `simple_auth_manager_passwords.json.generated` o configura FAB / desactiva auth.
 
 ---
 
@@ -231,7 +247,7 @@
 
 **Actor principal:** Operador
 
-**Precondiciones:** Airflow arrancado (api-server + scheduler); DAGs sincronizados. Airflow puede arrancarse desde Fase 0 del dashboard o con `./scripts/iniciar_servicios.sh --only airflow`.
+**Precondiciones:** Airflow arrancado (api-server + dag-processor + scheduler); DAGs sincronizados con `./scripts/sync_dags_airflow.sh`. Airflow puede arrancarse desde Fase 0 del dashboard o con `./scripts/iniciar_servicios.sh --only airflow`. Ver `docs/AIRFLOW.md` y `docs/CREDENCIALES_UI.md`.
 
 #### Escenario normal
 
@@ -292,7 +308,7 @@
 1. El operador abre el dashboard Streamlit.
 2. En la barra lateral y en **Monitorización**, el operador ve enlaces a **Airflow** (8080), **NiFi** (8443) y **API Swagger** (8000).
 3. El operador pulsa el enlace correspondiente (se abre en nueva pestaña).
-4. Para Airflow: introduce admin/admin; para NiFi: ver nifi-app.log; para API Swagger: documentación interactiva sin credenciales.
+4. Para Airflow: usuario `admin`; contraseña según versión (Airflow 3.x: `simple_auth_manager_passwords.json.generated`; ver `docs/CREDENCIALES_UI.md`). Para NiFi: ver nifi-app.log. Para API Swagger: documentación interactiva sin credenciales.
 5. El operador gestiona DAGs (Airflow), flujos de ingesta (NiFi) o prueba endpoints REST (API Swagger).
 
 **Postcondiciones:** Acceso a la UI correspondiente.

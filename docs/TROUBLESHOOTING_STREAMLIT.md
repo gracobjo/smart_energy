@@ -77,6 +77,60 @@ hive -e "SHOW DATABASES;" 2>&1
 
 ---
 
+## Hive / BeeLine: `Unable to create a terminal` (rc=-1 desde el dashboard)
+
+**Síntoma:** Al pulsar informes Hive en el cuadro de mando o al explorar SQL, la salida incluye:
+
+```text
+java.lang.IllegalStateException: Unable to create a terminal
+at org.apache.hive.beeline.BeeLine...
+```
+
+**Causa:** En Hive 4.x el script `hive` puede redirigir a **BeeLine** (JLine). Desde **Streamlit** la consulta se lanza con `subprocess` **sin terminal interactiva**, y BeeLine no puede inicializar la consola. (Los avisos SLF4J “multiple bindings” suelen ser irrelevantes.)
+
+**Qué hacer:**
+
+1. **`spark-sql`** comparte el mismo catálogo y no usa ese modo interactivo: la app intenta `spark-sql` antes que `hive`. Asegúrate de tener `SPARK_HOME` y `spark-sql` en el `PATH` del proceso que arranca Streamlit.
+2. Forzar el **CLI clásico** (CliDriver) en lugar de BeeLine: `export USE_BEELINE_FOR_HIVE_CLI=false` y, si hace falta, aplicar el parche del repo para que `bin/hive` respete la variable:
+   ```bash
+   ./scripts/patch_hive_use_cli_driver.sh
+   ```
+   Ver también `README_DESPLIEGUE_SMART_GRID.md` (sección Hive 4.x / Beeline).
+
+3. Opcional: en entornos donde quieras probar **hive antes que spark-sql** (arranque más ligero), puedes definir `HIVE_CLI_TRY_HIVE_FIRST=1` — solo tiene sentido si el punto 2 está resuelto.
+
+---
+
+## Hive: `NoClassDefFoundError: TezTaskCommunicatorImpl` / `org.apache.tez`
+
+**Síntoma:** Al usar `hive` (CliDriver) aparece:
+
+```text
+java.lang.NoClassDefFoundError: org/apache/tez/dag/app/TezTaskCommunicatorImpl
+```
+
+**Causa:** Hive intenta el motor de ejecución **Tez**, pero **Apache Tez** no está instalado ni en el classpath.
+
+**Qué hacer:**
+
+1. En **`$HIVE_HOME/conf/hive-site.xml`**, dentro de `<configuration>`:
+   ```xml
+   <property>
+     <name>hive.execution.engine</name>
+     <value>mr</value>
+   </property>
+   ```
+   (`mr` = MapReduce, incluido con Hadoop.)
+
+2. O en línea de comandos:
+   ```bash
+   hive --hiveconf hive.execution.engine=mr -e "SHOW DATABASES;"
+   ```
+
+En el dashboard, `app_visualizacion.py` ya añade `--hiveconf hive.execution.engine=mr` al invocar `hive` (no afecta a `spark-sql`). Si en tu entorno tienes Tez y quieres usarlo: `export HIVE_USE_TEZ=1` antes de Streamlit.
+
+---
+
 ## Hive: `Location: file://... specified for non-external table`
 
 **Síntoma:** Al crear tablas con `spark-sql -f setup_hive.hql` aparecen avisos como:

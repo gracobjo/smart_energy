@@ -131,6 +131,11 @@ else
     <name>hive.metastore.schema.verification</name>
     <value>false</value>
   </property>
+  <property>
+    <name>hive.execution.engine</name>
+    <value>mr</value>
+    <description>MapReduce: Hive 4.x puede intentar Tez por defecto; sin Tez instalado falla (TezTaskCommunicatorImpl)</description>
+  </property>
 </configuration>
 HIVEEOF
 fi

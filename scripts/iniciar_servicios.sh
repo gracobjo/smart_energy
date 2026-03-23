@@ -111,10 +111,6 @@ _start_cassandra() {
 }
 
 _start_airflow() {
-  if _port_open 8080; then
-    echo "=== Airflow: ya responde en 8080 ==="
-    return 0
-  fi
   export AIRFLOW_HOME
   local airflow_bin=""
   for venv in "$BASE/venv/bin/airflow" "$BASE/venv_transporte/bin/airflow" "$(command -v airflow 2>/dev/null)"; do
@@ -124,16 +120,32 @@ _start_airflow() {
     echo "AVISO: No encuentro airflow (venv, venv_transporte). Instala: pip install apache-airflow" >&2
     return 1
   fi
-  echo "=== Airflow: arrancando (api-server + scheduler) ==="
   local log_api="/tmp/smart_grid_airflow_api.log"
+  local log_dag="/tmp/smart_grid_airflow_dag_processor.log"
   local log_sched="/tmp/smart_grid_airflow_scheduler.log"
-  nohup "$airflow_bin" api-server -H 0.0.0.0 -p 8080 >>"$log_api" 2>&1 &
-  echo "  api-server pid=$!"
-  sleep 3
-  nohup "$airflow_bin" scheduler >>"$log_sched" 2>&1 &
-  echo "  scheduler pid=$!"
-  echo "    Logs: $log_api, $log_sched"
-  echo "    UI: http://localhost:8080 (admin/admin)"
+  echo "=== Airflow: api-server + dag-processor + scheduler ==="
+  if ! _port_open 8080; then
+    nohup "$airflow_bin" api-server -H 0.0.0.0 -p 8080 >>"$log_api" 2>&1 &
+    echo "  api-server pid=$!"
+    sleep 2
+  else
+    echo "  api-server: ya responde en 8080"
+  fi
+  if ! pgrep -f "airflow dag-processor" >/dev/null 2>&1; then
+    nohup "$airflow_bin" dag-processor >>"$log_dag" 2>&1 &
+    echo "  dag-processor pid=$! (Airflow 3.x: parsea DAGs)"
+  else
+    echo "  dag-processor: ya en ejecución"
+  fi
+  sleep 2
+  if ! pgrep -f "airflow scheduler" >/dev/null 2>&1; then
+    nohup "$airflow_bin" scheduler >>"$log_sched" 2>&1 &
+    echo "  scheduler pid=$!"
+  else
+    echo "  scheduler: ya en ejecución"
+  fi
+  echo "    Logs: $log_api, $log_dag, $log_sched"
+  echo "    UI: http://localhost:8080 (ver docs/CREDENCIALES_UI.md)"
 }
 
 _start_api() {

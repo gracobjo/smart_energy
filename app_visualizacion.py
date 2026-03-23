@@ -25,6 +25,15 @@ except Exception:
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
+# Cargar .env si existe (NIFI_USER, NIFI_PASS, etc.)
+_env_file = BASE / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
@@ -38,6 +47,7 @@ except ImportError:
 from config_nodos import get_aristas, get_nodos
 from config import (
     API_SMART_GRID_PORT,
+    API_WEATHER_KEY,
     CASSANDRA_HOST,
     KEYSPACE,
     HDFS_DEFAULT_FS,
@@ -157,10 +167,29 @@ def _hive_cli_env() -> Dict[str, str]:
     out = {k: v for k, v in e.items() if v}
     if prepend:
         out["PATH"] = ":".join(prepend) + ":" + os.environ.get("PATH", "")
+    # Hive 4.x redirige `hive` a BeeLine por defecto; BeeLine + JLine fallan sin TTY real
+    # (p. ej. subprocess desde Streamlit: "Unable to create a terminal"). Usar CliDriver.
+    # Requiere que bin/hive respete la variable: ./scripts/patch_hive_use_cli_driver.sh
+    out["USE_BEELINE_FOR_HIVE_CLI"] = os.environ.get(
+        "USE_BEELINE_FOR_HIVE_CLI", "false"
+    )
     # hive -e (CliDriver) con Java 21 necesita --add-opens; hive-env.sh también puede definirlos
     _hopts = (os.environ.get("HADOOP_CLIENT_OPTS", "") + " " + _HIVE_JAVA21_OPENS).strip()
     out["HADOOP_CLIENT_OPTS"] = _hopts
     return out
+
+
+def _hive_cli_invocation(exe: str, subcmd: List[str]) -> List[str]:
+    """
+    bin/hive sin Apache Tez en el classpath: Hive 4.x puede intentar motor tez y fallar con
+    NoClassDefFoundError: TezTaskCommunicatorImpl. Forzar MapReduce (mr) salvo HIVE_USE_TEZ=1.
+    spark-sql no usa este flag.
+    """
+    if Path(exe).name != "hive":
+        return [exe, *subcmd]
+    if os.environ.get("HIVE_USE_TEZ", "").strip().lower() in ("1", "true", "yes"):
+        return [exe, *subcmd]
+    return [exe, "--hiveconf", "hive.execution.engine=mr", *subcmd]
 
 
 def _cassandra_cluster_ephemeral(contact_points: Tuple[str, ...], user: str = "", password: str = "") -> Any:
@@ -396,7 +425,7 @@ def _start_kafka() -> Tuple[bool, str]:
 
 
 def _start_airflow() -> Tuple[bool, str]:
-    """Arranca Airflow (api-server en 8080 + scheduler)."""
+    """Arranca Airflow (api-server en 8080 + dag-processor + scheduler). En Airflow 3.x el dag-processor es obligatorio para que aparezcan los DAGs."""
     if _port_open("127.0.0.1", 8080):
         return True, "Airflow ya responde en 8080."
     airflow_bin = None
@@ -416,6 +445,7 @@ def _start_airflow() -> Tuple[bool, str]:
     env = os.environ.copy()
     env["AIRFLOW_HOME"] = env.get("AIRFLOW_HOME", str(Path.home() / "airflow"))
     log_api = Path("/tmp/smart_grid_airflow_api.log")
+    log_dag = Path("/tmp/smart_grid_airflow_dag_processor.log")
     log_sched = Path("/tmp/smart_grid_airflow_scheduler.log")
     try:
         with log_api.open("a", encoding="utf-8") as f:
@@ -426,14 +456,22 @@ def _start_airflow() -> Tuple[bool, str]:
                 env=env,
             )
         time.sleep(2)
-        with log_sched.open("a", encoding="utf-8") as f:
+        with log_dag.open("a", encoding="utf-8") as f:
             p2 = subprocess.Popen(
+                [airflow_bin, "dag-processor"],
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+        time.sleep(2)
+        with log_sched.open("a", encoding="utf-8") as f:
+            p3 = subprocess.Popen(
                 [airflow_bin, "scheduler"],
                 stdout=f,
                 stderr=subprocess.STDOUT,
                 env=env,
             )
-        return True, f"Airflow arrancado (api={p1.pid}, scheduler={p2.pid}). UI: http://localhost:8080"
+        return True, f"Airflow arrancado (api={p1.pid}, dag-processor={p2.pid}, scheduler={p3.pid}). UI: http://localhost:8080"
     except Exception as e:
         return False, f"Error arrancando Airflow: {e}"
 
@@ -473,9 +511,9 @@ def _stop_cassandra() -> Tuple[bool, str]:
 
 def _stop_airflow() -> Tuple[bool, str]:
     try:
-        for proc in ["airflow api-server", "airflow scheduler", "airflow webserver"]:
+        for proc in ["airflow api-server", "airflow dag-processor", "airflow scheduler", "airflow webserver"]:
             subprocess.run(["pkill", "-f", proc], capture_output=True)
-        return True, "Airflow parado (api-server, scheduler, webserver)."
+        return True, "Airflow parado (api-server, dag-processor, scheduler, webserver)."
     except Exception as e:
         return False, f"Error parando Airflow: {e}"
 
@@ -562,6 +600,7 @@ def _comprobar_servicios_base() -> Dict[str, Any]:
 
     kafka_ok = _port_open("127.0.0.1", 9092)
     cassandra_ok = _port_open("127.0.0.1", 9042)
+    nifi_ok = _port_open("127.0.0.1", 8443)
     airflow_ok = _port_open("127.0.0.1", 8080)
     api_ok = _port_open("127.0.0.1", API_SMART_GRID_PORT)
 
@@ -608,8 +647,10 @@ def _comprobar_servicios_base() -> Dict[str, Any]:
         "hdfs_ok": hdfs_ok,
         "kafka_ok": kafka_ok,
         "cassandra_ok": cassandra_ok,
+        "nifi_ok": nifi_ok,
         "airflow_ok": airflow_ok,
         "api_ok": api_ok,
+        "api_swagger": {"ok": api_ok, "port": API_SMART_GRID_PORT},
         "keyspace_ok": ks_ok,
         "topics_ok": topics_ok,
         "topics": topics,
@@ -933,7 +974,14 @@ def _ejecutar_consulta_hive(
             spark_paths.append(extra)
 
     candidates: List[str] = []
-    hive_first = quick_check or catalog_probe
+    # Siempre intentar spark-sql antes que hive: `hive` en 4.x suele ir a BeeLine y rompe
+    # sin TTY (dashboard). quick_check/catalog_probe antes priorizaban hive por arranque más
+    # ligero; el fallback a hive sigue disponible si spark-sql no existe o falla.
+    hive_first = os.environ.get("HIVE_CLI_TRY_HIVE_FIRST", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ) and (quick_check or catalog_probe)
     if hive_first:
         candidates.extend(hive_paths)
         candidates.extend(spark_paths)
@@ -963,7 +1011,7 @@ def _ejecutar_consulta_hive(
             seen.add(exe)
             name = Path(exe).name
             timeout_s = _timeouts_for_exe(name)
-            r = _safe_run([exe, "-e", clean], timeout_s=timeout_s, env=env)
+            r = _safe_run(_hive_cli_invocation(exe, ["-e", clean]), timeout_s=timeout_s, env=env)
             out = (r["stdout"] + "\n" + r["stderr"]).strip()
             if r["rc"] == 0:
                 return 0, out
@@ -979,12 +1027,33 @@ def _ejecutar_consulta_hive(
             "y/o define SPARK_HOME=/opt/spark. Usa Java 21 con Hive 4.2.",
         )
 
+    def _append_hive_failure_hints(text: str) -> str:
+        orig = text or ""
+        extras = ""
+        if "Unable to create a terminal" in orig or "org.apache.hive.beeline" in orig:
+            extras += (
+                "\n\n---\nHive / BeeLine: en Hive 4.x el binario `hive` usa BeeLine por defecto; "
+                "desde Streamlit no hay TTY interactivo. La app fuerza USE_BEELINE_FOR_HIVE_CLI=false "
+                "(CliDriver). Si sigue fallando: ./scripts/patch_hive_use_cli_driver.sh y "
+                'hive -e "SHOW DATABASES;" en una terminal.'
+            )
+        if "TezTaskCommunicatorImpl" in orig or "org/apache/tez" in orig:
+            extras += (
+                "\n\n---\nHive / Tez: Hive intenta usar Apache Tez pero no está instalado en el classpath. "
+                "Usa motor MapReduce: `hive --hiveconf hive.execution.engine=mr -e \"SHOW DATABASES;\"` "
+                "o añade en conf/hive-site.xml la propiedad hive.execution.engine=mr. "
+                "La app ya pasa --hiveconf al invocar `hive` (export HIVE_USE_TEZ=1 si tienes Tez)."
+            )
+        return orig + extras
+
     rc, out = _run_candidates()
     if rc == 0:
         return 0, out
     if catalog_probe and "timeout" in (out or "").lower():
         time.sleep(4)
         rc, out = _run_candidates()
+    if rc != 0:
+        out = _append_hive_failure_hints(out or "")
     return rc, out
 
 
@@ -1043,7 +1112,7 @@ def _aplicar_esquema_hive_if_needed() -> Tuple[bool, str]:
         if Path(exe).name == "spark-sql":
             cmd = [exe, "--conf", f"spark.sql.warehouse.dir={warehouse}", "-f", str(hql)]
         else:
-            cmd = [exe, "-f", str(hql)]
+            cmd = _hive_cli_invocation(exe, ["-f", str(hql)])
         r = _safe_run(cmd, timeout_s=240, env=env)
         out = (r["stdout"] + "\n" + r["stderr"]).strip()
         if r["rc"] == 0:
@@ -1155,30 +1224,55 @@ def _fase0_parar_servicios() -> Dict[str, Any]:
 
 def _verificar_kafka_mensajes(bootstrap: str) -> Dict[str, Any]:
     """
-    Verifica si hay al menos 1 mensaje reciente en `energy_raw` y `weather_raw`.
+    Verifica si hay al menos 1 mensaje en `energy_raw` y `weather_raw`.
+
+    Importante: con ``auto_offset_reset=latest`` solo se ven mensajes publicados **después**
+    de conectar el consumer; si el producer ya terminó, la comprobación daba siempre false.
+    Aquí usamos ``earliest`` + grupo único (sin offsets guardados) para leer datos ya
+    existentes en el topic (típico: producer ejecutado hace segundos).
     """
     try:
+        import uuid as _uuid
+
         from kafka import KafkaConsumer
         import json as _json
+
+        def _des(v: bytes) -> Any:
+            try:
+                return _json.loads(v.decode("utf-8"))
+            except Exception:
+                return {}
+
+        servers = [s.strip() for s in (bootstrap or "").split(",") if s.strip()]
+        if not servers:
+            return {"ok": False, "error": "KAFKA_BOOTSTRAP vacío"}
 
         consumer = KafkaConsumer(
             TOPIC_RAW,
             TOPIC_WEATHER_RAW,
-            bootstrap_servers=bootstrap,
-            auto_offset_reset="latest",
+            bootstrap_servers=servers,
+            auto_offset_reset="earliest",
             enable_auto_commit=False,
-            consumer_timeout_ms=2500,
-            value_deserializer=lambda v: _json.loads(v.decode("utf-8")),
+            group_id=f"streamlit-verify-{_uuid.uuid4().hex[:12]}",
+            consumer_timeout_ms=12000,
+            max_poll_records=200,
+            value_deserializer=_des,
         )
         got = {TOPIC_RAW: False, TOPIC_WEATHER_RAW: False}
         t0 = time.time()
+        n = 0
         for msg in consumer:
+            n += 1
             got[msg.topic] = True
-            # Nos basta con confirmar que llegaron.
             if got[TOPIC_RAW] and got[TOPIC_WEATHER_RAW]:
                 break
-            if time.time() - t0 > 3.0:
+            # Evitar leer retenciones enormes si falta un topic
+            if n > 8000 or (time.time() - t0 > 30.0):
                 break
+        try:
+            consumer.close()
+        except Exception:
+            pass
         return {"ok": got[TOPIC_RAW] and got[TOPIC_WEATHER_RAW], "got": got}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -1266,7 +1360,7 @@ def _nifi_flow_processors_activos() -> List[str]:
     Nota: en este repo el `conf/flow.json.gz` viene vacío por defecto, así que
     para reflejar lo que realmente se ha creado/arrancado usamos la API REST.
     """
-    pg_id = _nifi_get_root_group_id()
+    pg_id, _ = _nifi_get_root_group_id()
     if not pg_id:
         return []
     try:
@@ -1313,38 +1407,18 @@ def _nifi_status() -> Dict[str, Any]:
 
 def _nifi_required_processors_fase1() -> List[Dict[str, str]]:
     """
-    Lista conceptual de procesadores típicos para cumplir la Fase I con NiFi:
-    (OpenWeather/ElectricityMaps) -> Transformación -> PutKafka -> (opcional) PutHDFS.
+    Los 8 procesadores que crea el botón "Crear procesadores NiFi (Fase I demo)".
+    Debe coincidir exactamente con _nifi_crear_procesadores_fase1_demo().
     """
     return [
-        {
-            "procesador": "GenerateFlowFile (Trigger)",
-            "objetivo": "Disparar la ejecución periódica (p. ej. cada 15 min).",
-        },
-        {
-            "procesador": "InvokeHTTP (OpenWeather/ElectricityMaps)",
-            "objetivo": "Consumir APIs externas y obtener JSON con telemetría (clima) y/o carbono/mix.",
-        },
-        {
-            "procesador": "EvaluateJsonPath (opcional)",
-            "objetivo": "Extraer campos concretos del JSON para usarlos como atributos o para construir el payload.",
-        },
-        {
-            "procesador": "JoltTransformJSON",
-            "objetivo": "Transformar el JSON a la estructura esperada por `energy_raw` y `weather_raw`.",
-        },
-        {
-            "procesador": "PublishKafka (por topic)",
-            "objetivo": "Publicar a Kafka (2 instancias): `weather_raw` y `energy_raw`.",
-        },
-        {
-            "procesador": "PutHDFS (opcional)",
-            "objetivo": "Guardar raw en HDFS para auditoría/back-up (si quieres cumplir 100% el PDF).",
-        },
-        {
-            "procesador": "Controller Service Kafka (necesario por PublishKafka)",
-            "objetivo": "Configurar conexión a Kafka (bootstrap servers) que usa `PublishKafka`.",
-        },
+        {"procesador": "NiFi_F1_GenerateTrigger", "objetivo": "Disparar ejecución periódica (cada 10 s)."},
+        {"procesador": "NiFi_F1_InvokeHTTP_OpenWeather", "objetivo": "API OpenWeather → JSON clima (Madrid)."},
+        {"procesador": "NiFi_F1_JoltTransformJSON_ToSchema", "objetivo": "Transformar JSON a schema esperado."},
+        {"procesador": "NiFi_F1_PublishKafka_weather_raw", "objetivo": "Publicar en Kafka topic `weather_raw`."},
+        {"procesador": "NiFi_F1_PublishKafka_energy_raw", "objetivo": "Publicar en Kafka topic `energy_raw`."},
+        {"procesador": "NiFi_F1_ExecuteProducer", "objetivo": "Ejecutar producer.py (Electricity Maps + simulación)."},
+        {"procesador": "NiFi_F1_GetFile_GPS", "objetivo": "Leer logs GPS desde data/gps_logs."},
+        {"procesador": "NiFi_F1_PublishKafka_gps_raw", "objetivo": "Publicar en Kafka topic `gps_raw`."},
     ]
 
 
@@ -1373,28 +1447,53 @@ def _nifi_auth_headers() -> Dict[str, str]:
     return {}
 
 
-def _nifi_get_root_group_id() -> Optional[str]:
+def _nifi_get_root_group_id() -> Tuple[Optional[str], str]:
+    """
+    Devuelve (pg_id, error_detail). Si pg_id es None, error_detail explica el fallo.
+    """
+    user = os.environ.get("NIFI_USER")
+    passwd = os.environ.get("NIFI_PASS")
+    if not user or not passwd:
+        return None, "Faltan NIFI_USER o NIFI_PASS. Añade en .env o exporta (ver nifi-app.log: Generated Username/Password)."
+
     try:
+        h = _nifi_auth_headers()
+        if not h:
+            return None, "Autenticación NiFi fallida (credenciales incorrectas). Verifica NIFI_USER/NIFI_PASS en nifi-app.log."
         r = requests.get(
             f"{_nifi_rest()}/flow/process-groups/root",
-            headers=_nifi_auth_headers(),
+            headers=h,
             verify=False,
             timeout=10,
         )
         if r.status_code != 200:
-            return None
-        return r.json()["processGroupFlow"]["id"]
-    except Exception:
-        return None
+            detail = r.text[:200] if r.text else "sin respuesta"
+            return None, f"NiFi API devolvió HTTP {r.status_code}: {detail}"
+        data = r.json()
+        pg_flow = data.get("processGroupFlow") or data.get("processGroupFlowDTO")
+        if not pg_flow:
+            return None, f"NiFi API: respuesta sin processGroupFlow (keys: {list(data.keys())[:10]})"
+        pg_id = pg_flow.get("id")
+        if not pg_id:
+            return None, "NiFi API: processGroupFlow sin id"
+        return pg_id, ""
+    except requests.exceptions.ConnectError as e:
+        return None, f"No se puede conectar a NiFi ({_nifi_rest()}). ¿Está arrancado? ¿Usas localhost?"
+    except requests.exceptions.Timeout:
+        return None, "Timeout conectando a NiFi. Comprueba que esté arrancado y accesible."
+    except Exception as e:
+        return None, f"Error: {e}"
 
 
 def _nifi_list_processors(pg_id: str) -> Dict[str, str]:
     """
-    Devuelve mapa name -> id.
+    Devuelve mapa name -> id. Incluye procesadores de grupos anidados
+    (p. ej. si el flow fue importado en un Process Group dentro del root).
     """
     try:
         r = requests.get(
             f"{_nifi_rest()}/process-groups/{pg_id}/processors",
+            params={"includeDescendantGroups": "true"},
             headers=_nifi_auth_headers(),
             verify=False,
             timeout=15,
@@ -1452,9 +1551,9 @@ def _nifi_crear_procesadores_fase1_demo() -> Dict[str, Any]:
     Crea en NiFi los procesadores mínimos para la Fase I (demo), sin asegurar
     que queden RUNNING ni que estén conectados.
     """
-    pg_id = _nifi_get_root_group_id()
+    pg_id, err = _nifi_get_root_group_id()
     if not pg_id:
-        return {"ok": False, "error": "No pude obtener el root process group id en NiFi."}
+        return {"ok": False, "error": f"No pude obtener el root process group id en NiFi. {err}"}
 
     existing = _nifi_list_processors(pg_id)
 
@@ -1508,7 +1607,7 @@ def _nifi_crear_procesadores_fase1_demo() -> Dict[str, Any]:
             150.0,
             450.0,
             {
-                "Command": sys.executable or "python3",
+                "Command Path": sys.executable or "python3",
                 "Command Arguments": "producer.py",
                 "Working Directory": str(BASE),
             },
@@ -1553,9 +1652,9 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
     Conecta los procesadores NiFi Fase I demo: crea Kafka3ConnectionService si falta,
     configura PublishKafka con el controller service, crea conexiones y habilita el CS.
     """
-    pg_id = _nifi_get_root_group_id()
+    pg_id, err = _nifi_get_root_group_id()
     if not pg_id:
-        return {"ok": False, "error": "No pude obtener el root process group id en NiFi."}
+        return {"ok": False, "error": f"No pude obtener el root process group id en NiFi. {err}"}
 
     existing = _nifi_list_processors(pg_id)
     required_names = [
@@ -1659,7 +1758,7 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
     pid_map = {n: existing[n] for n in required_names + optional_names if n in existing}
     updates = {
         pid_map["NiFi_F1_GenerateTrigger"]: {"schedulingPeriod": "10 sec", "auto": [], "props": {}},
-        pid_map["NiFi_F1_InvokeHTTP_OpenWeather"]: {"schedulingPeriod": "10 sec", "auto": ["Failure", "No Retry", "Response", "Retry"], "props": {}},
+        pid_map["NiFi_F1_InvokeHTTP_OpenWeather"]: {"schedulingPeriod": "10 sec", "auto": ["Original", "Failure", "No Retry", "Retry"], "props": {"HTTP URL": f"https://api.openweathermap.org/data/2.5/weather?q=Madrid&appid={API_WEATHER_KEY or ''}&units=metric"}},
         pid_map["NiFi_F1_JoltTransformJSON_ToSchema"]: {"schedulingPeriod": "10 sec", "auto": ["failure"], "props": {}},
         pid_map["NiFi_F1_PublishKafka_weather_raw"]: {"schedulingPeriod": "10 sec", "auto": ["success", "failure"], "props": {"Kafka Connection Service": kafka_cs}},
         pid_map["NiFi_F1_PublishKafka_energy_raw"]: {"schedulingPeriod": "10 sec", "auto": ["success", "failure"], "props": {"Kafka Connection Service": kafka_cs}},
@@ -1667,9 +1766,14 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
     for k in ["NiFi_F1_ExecuteProducer", "NiFi_F1_GetFile_GPS", "NiFi_F1_PublishKafka_gps_raw"]:
         if k in pid_map:
             if k == "NiFi_F1_ExecuteProducer":
-                updates[pid_map[k]] = {"schedulingPeriod": "15 min", "auto": ["output-stream", "stderr"], "props": {}}
+                updates[pid_map[k]] = {
+                    "schedulingPeriod": "15 min",
+                    "auto": ["output stream", "nonzero status", "original", "stderr"],
+                    "props": {"Command Path": sys.executable or "python3"},
+                }
             elif k == "NiFi_F1_GetFile_GPS":
-                updates[pid_map[k]] = {"schedulingPeriod": "1 min", "auto": ["success", "failure"], "props": {}}
+                # success va a PublishKafka_gps_raw; solo auto-terminar failure
+                updates[pid_map[k]] = {"schedulingPeriod": "1 min", "auto": ["failure"], "props": {}}
             else:
                 updates[pid_map[k]] = {"schedulingPeriod": "10 sec", "auto": ["success", "failure"], "props": {"Kafka Connection Service": kafka_cs}}
     for pid, upd in updates.items():
@@ -1692,15 +1796,18 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
                 time.sleep(0.5)
                 cur = requests.get(f"{base_url}/processors/{pid}", headers=_nifi_auth_headers(), verify=False, timeout=15).json()
             
-            cfg = copy.deepcopy(cur["component"]["config"])
+            comp = copy.deepcopy(cur["component"])
+            cfg = comp.get("config") or {}
+            cfg = copy.deepcopy(cfg)
             cfg["schedulingPeriod"] = upd["schedulingPeriod"]
-            cfg["autoTerminatedRelationships"] = upd["auto"]
+            cfg["autoTerminatedRelationships"] = list(upd["auto"])
             props = copy.deepcopy(cfg.get("properties") or {})
             props.update(upd["props"])
             cfg["properties"] = props
+            comp["config"] = cfg
             req = requests.put(
                 f"{base_url}/processors/{pid}",
-                json={"revision": cur["revision"], "component": {"id": pid, "config": cfg}},
+                json={"revision": cur["revision"], "component": comp},
                 headers=_nifi_auth_headers(),
                 verify=False,
                 timeout=15,
@@ -1725,17 +1832,52 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
         except Exception as e:
             return {"ok": False, "error": f"Error actualizando procesador {pid}: {e}"}
 
-    # 3) Crear conexiones si no existen
+    # 3) Crear conexiones si no existen (o reparar InvokeHTTP->Jolt si usa Original en vez de Response)
     try:
-        r = requests.get(f"{base_url}/process-groups/{pg_id}/connections", headers=_nifi_auth_headers(), verify=False, timeout=15)
-        conns = (r.json() if r.status_code == 200 else {}).get("connections", [])
-        conn_count = len(conns)
+        r = requests.get(
+            f"{base_url}/flow/process-groups/{pg_id}",
+            headers=_nifi_auth_headers(),
+            verify=False,
+            timeout=15,
+        )
+        data = r.json() if r.status_code == 200 else {}
+        conns = []
+        def _collect_connections(pgf: Any) -> None:
+            f = (pgf or {}).get("flow") or (pgf or {}).get("processGroupFlow", {}).get("flow", {})
+            conns.extend(f.get("connections") or [])
+            for pg in (f.get("processGroups") or []):
+                _collect_connections(pg.get("processGroupFlow") or pg)
+        _collect_connections(data.get("processGroupFlow", data))
     except Exception:
-        conn_count = 0
+        conns = []
+
+    invoke_id = pid_map.get("NiFi_F1_InvokeHTTP_OpenWeather")
+    jolt_id = pid_map.get("NiFi_F1_JoltTransformJSON_ToSchema")
+    if invoke_id and jolt_id:
+        for c in conns:
+            comp = c.get("component") or c
+            src = comp.get("source", {})
+            dst = comp.get("destination", {})
+            if src.get("id") == invoke_id and dst.get("id") == jolt_id:
+                rels = comp.get("selectedRelationships") or []
+                if "Original" in rels and "Response" not in rels:
+                    conn_id = comp.get("id") or c.get("id")
+                    rev = c.get("revision") or comp.get("revision") or {}
+                    if conn_id:
+                        del_r = requests.delete(
+                            f"{base_url}/connections/{conn_id}",
+                            params={"version": rev.get("version", 0)},
+                            headers=_nifi_auth_headers(),
+                            verify=False,
+                            timeout=15,
+                        )
+                        if del_r.status_code in (200, 204):
+                            conns = [x for x in conns if (x.get("component") or x).get("id") != conn_id and x.get("id") != conn_id]
+                break
 
     links = [
         (pid_map["NiFi_F1_GenerateTrigger"], "success", pid_map["NiFi_F1_InvokeHTTP_OpenWeather"]),
-        (pid_map["NiFi_F1_InvokeHTTP_OpenWeather"], "Original", pid_map["NiFi_F1_JoltTransformJSON_ToSchema"]),
+        (pid_map["NiFi_F1_InvokeHTTP_OpenWeather"], "Response", pid_map["NiFi_F1_JoltTransformJSON_ToSchema"]),
         (pid_map["NiFi_F1_JoltTransformJSON_ToSchema"], "success", pid_map["NiFi_F1_PublishKafka_weather_raw"]),
         (pid_map["NiFi_F1_JoltTransformJSON_ToSchema"], "success", pid_map["NiFi_F1_PublishKafka_energy_raw"]),
     ]
@@ -1743,8 +1885,19 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
         links.append((pid_map["NiFi_F1_GenerateTrigger"], "success", pid_map["NiFi_F1_ExecuteProducer"]))
     if "NiFi_F1_GetFile_GPS" in pid_map and "NiFi_F1_PublishKafka_gps_raw" in pid_map:
         links.append((pid_map["NiFi_F1_GetFile_GPS"], "success", pid_map["NiFi_F1_PublishKafka_gps_raw"]))
-    if conn_count < len(links):
-        for src_id, rel, dst_id in links:
+
+    def _conn_exists(src_id: str, rel: str, dst_id: str) -> bool:
+        for c in conns:
+            comp = c.get("component") or c
+            sr = comp.get("source", {}).get("id")
+            ds = comp.get("destination", {}).get("id")
+            rels = comp.get("selectedRelationships") or []
+            if sr == src_id and ds == dst_id and rel in rels:
+                return True
+        return False
+
+    for src_id, rel, dst_id in links:
+        if not _conn_exists(src_id, rel, dst_id):
             try:
                 body = {
                     "revision": {"clientId": client_id, "version": 0},
@@ -1766,14 +1919,38 @@ def _nifi_conectar_y_configurar_fase1() -> Dict[str, Any]:
             except Exception as e:
                 return {"ok": False, "error": f"Error creando conexión: {e}"}
 
+    # 4) Garantizar InvokeHTTP tiene Original auto-terminado (evita error INVALID)
+    invoke_pid = pid_map.get("NiFi_F1_InvokeHTTP_OpenWeather")
+    if invoke_pid:
+        try:
+            cur = requests.get(f"{base_url}/processors/{invoke_pid}", headers=_nifi_auth_headers(), verify=False, timeout=10).json()
+            comp = cur.get("component") or {}
+            cfg = comp.get("config") or {}
+            auto = list(cfg.get("autoTerminatedRelationships") or [])
+            if "Original" not in auto:
+                auto.append("Original")
+                comp_copy = copy.deepcopy(comp)
+                comp_copy.setdefault("config", {})["autoTerminatedRelationships"] = auto
+                rp = requests.put(
+                    f"{base_url}/processors/{invoke_pid}",
+                    json={"revision": cur["revision"], "component": comp_copy},
+                    headers={**_nifi_auth_headers(), "Content-Type": "application/json"},
+                    verify=False,
+                    timeout=15,
+                )
+                if rp.status_code >= 400:
+                    return {"ok": False, "error": f"InvokeHTTP: no se pudo auto-terminar Original: {rp.text[:200]}"}
+        except Exception as e:
+            return {"ok": False, "error": f"InvokeHTTP: {e}"}
+
     return {"ok": True, "message": "Procesadores conectados y configurados. Kafka CS habilitado."}
 
 
 def _nifi_arrancar_procesadores_fase1() -> Dict[str, Any]:
     """Pone en RUNNING los procesadores NiFi Fase I demo."""
-    pg_id = _nifi_get_root_group_id()
+    pg_id, err = _nifi_get_root_group_id()
     if not pg_id:
-        return {"ok": False, "error": "No pude obtener el root process group id en NiFi."}
+        return {"ok": False, "error": f"No pude obtener el root process group id en NiFi. {err}"}
     existing = _nifi_list_processors(pg_id)
     names = ["NiFi_F1_GenerateTrigger", "NiFi_F1_InvokeHTTP_OpenWeather", "NiFi_F1_JoltTransformJSON_ToSchema",
              "NiFi_F1_PublishKafka_weather_raw", "NiFi_F1_PublishKafka_energy_raw",
@@ -1809,9 +1986,9 @@ def _nifi_arrancar_procesadores_fase1() -> Dict[str, Any]:
 
 def _nifi_parar_procesadores_fase1() -> Dict[str, Any]:
     """Pone en STOPPED los procesadores NiFi Fase I demo."""
-    pg_id = _nifi_get_root_group_id()
+    pg_id, err = _nifi_get_root_group_id()
     if not pg_id:
-        return {"ok": False, "error": "No pude obtener el root process group id en NiFi."}
+        return {"ok": False, "error": f"No pude obtener el root process group id en NiFi. {err}"}
     existing = _nifi_list_processors(pg_id)
     names = ["NiFi_F1_GenerateTrigger", "NiFi_F1_InvokeHTTP_OpenWeather", "NiFi_F1_JoltTransformJSON_ToSchema",
              "NiFi_F1_PublishKafka_weather_raw", "NiFi_F1_PublishKafka_energy_raw",
@@ -1842,6 +2019,56 @@ def _nifi_parar_procesadores_fase1() -> Dict[str, Any]:
         except Exception as e:
             return {"ok": False, "error": str(e), "stopped": stopped}
     return {"ok": True, "message": f"Procesadores parados ({len(stopped)}/{len(pids)}).", "stopped": stopped}
+
+
+# Posiciones ordenadas para alinear procesadores (evita amontonamiento en el canvas)
+_NIFI_F1_POSITIONS: Dict[str, Tuple[float, float]] = {
+    "NiFi_F1_GenerateTrigger": (150.0, 150.0),
+    "NiFi_F1_InvokeHTTP_OpenWeather": (450.0, 150.0),
+    "NiFi_F1_JoltTransformJSON_ToSchema": (750.0, 150.0),
+    "NiFi_F1_PublishKafka_weather_raw": (1050.0, 150.0),
+    "NiFi_F1_PublishKafka_energy_raw": (1050.0, 350.0),
+    "NiFi_F1_ExecuteProducer": (150.0, 450.0),
+    "NiFi_F1_GetFile_GPS": (150.0, 550.0),
+    "NiFi_F1_PublishKafka_gps_raw": (450.0, 550.0),
+}
+
+
+def _nifi_alinear_procesadores_fase1() -> Dict[str, Any]:
+    """Actualiza posiciones (x, y) de procesadores Fase I para que no estén amontonados."""
+    pg_id, err = _nifi_get_root_group_id()
+    if not pg_id:
+        return {"ok": False, "error": f"No pude obtener el root process group id en NiFi. {err}"}
+    existing = _nifi_list_processors(pg_id)
+    base_url = _nifi_rest()
+    aligned: List[str] = []
+    for name, (x, y) in _NIFI_F1_POSITIONS.items():
+        if name not in existing:
+            continue
+        pid = existing[name]
+        try:
+            cur = requests.get(
+                f"{base_url}/processors/{pid}",
+                headers=_nifi_auth_headers(),
+                verify=False,
+                timeout=10,
+            ).json()
+            comp = cur.get("component") or {}
+            comp["position"] = {"x": x, "y": y}
+            r = requests.put(
+                f"{base_url}/processors/{pid}",
+                json={"revision": cur["revision"], "component": comp},
+                headers={**_nifi_auth_headers(), "Content-Type": "application/json"},
+                verify=False,
+                timeout=15,
+            )
+            if r.status_code == 200:
+                aligned.append(name)
+            else:
+                return {"ok": False, "error": f"Error alineando {name}: HTTP {r.status_code}", "aligned": aligned}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "aligned": aligned}
+    return {"ok": True, "message": f"Posiciones actualizadas ({len(aligned)} procesadores). Recarga el canvas en NiFi.", "aligned": aligned}
 
 
 def _normalizar_estado(estado: Optional[str]) -> str:
@@ -2217,6 +2444,15 @@ def _render_cuadro_mando_directivo() -> None:
         "Reportes históricos desde Hive. Los datos provienen del pipeline (producer → Spark → persistencia_hive). "
         "Pulsa un botón para cargar el informe."
     )
+    with st.expander("¿Esta parte «no funciona»?", expanded=False):
+        st.markdown(
+            "**Sí está implementada y debe funcionar** si en el servidor hay `spark-sql` o `hive` accesibles, "
+            "metastore Hive correcto y tablas con datos (tras **Fase 0**, `setup_hive.hql` y pipeline con persistencia). "
+            "Si un botón devuelve **rc≠0**, el fallo es de **entorno** (Hive/Spark/YARN), no de un botón desactivado. "
+            "Comprueba la pestaña **0 · Entorno** → **Comprobar** y `docs/TROUBLESHOOTING_STREAMLIT.md`. "
+            "Si **rc=0** pero ves «Sin filas», la consulta está bien pero la tabla puede estar vacía o el formato de salida "
+            "no se reconoció para tabla; revisa el expander **Salida raw**."
+        )
     if "cuadro_mando_result" not in st.session_state:
         st.session_state["cuadro_mando_result"] = None
         st.session_state["cuadro_mando_label"] = ""
@@ -2284,7 +2520,11 @@ def main():
             f"[NiFi](https://{ui_host}:8443/nifi) · "
             f"[API Swagger](http://{ui_host}:{API_SMART_GRID_PORT}/docs)"
         )
-        st.caption("Airflow: admin/admin · NiFi: ver nifi-app.log · API: docs en docs/API_SWAGGER.md")
+        st.caption(
+            "Airflow: ver docs/CREDENCIALES_UI · NiFi: credenciales en nifi-app.log; "
+            "si el enlace falla: NiFi escucha en 127.0.0.1 por defecto — usa https://localhost:8443/nifi o "
+            "ejecuta ./scripts/patch_nifi_bind_all_interfaces.sh y reinicia NiFi."
+        )
         st.divider()
         st.markdown("**Pipeline local**")
         st.caption("Ejecuta `producer.py` + Spark (requiere Kafka/HDFS/Cassandra según config).")
@@ -2305,6 +2545,11 @@ def main():
         "**Orden:** pestaña **0** (levantar → comprobar → parar) → **1** → **2** → **3** → **Streaming & QA**. "
         "Abajo, **Monitorización** agrupa enlaces y exploradores. El **mapa** está al final de la página."
     )
+    import importlib
+
+    _guia_spark = importlib.import_module("app_guia_decisiones_spark")
+    _guia_spark.render_guia_decisiones_spark()
+
     tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(
         [
             "📊 Cuadro de mando",
@@ -2351,7 +2596,7 @@ def main():
 
         st.markdown("##### Paso 2 — Comprobar")
         if st.button("✓ Comprobar servicios", use_container_width=True, key="fase0_btn_comprobar"):
-            with st.spinner("Comprobando HDFS, Kafka, Cassandra, topics, Hive..."):
+            with st.spinner("Comprobando HDFS, Kafka, Cassandra, NiFi, topics, Hive, API Swagger..."):
                 res = _comprobar_servicios_base()
             st.session_state["fase0_check"] = res
             st.json(res)
@@ -2365,16 +2610,17 @@ def main():
 
         _chk = st.session_state.get("fase0_check") or {}
         if _chk:
-            c0, c1, c2, c3, c4, c5 = st.columns(6)
+            c0, c1, c2, c3, c4, c5, c6 = st.columns(7)
             c0.metric("HDFS", "✓" if _chk.get("hdfs_ok") else "✗")
             c1.metric("Kafka", "✓" if _chk.get("kafka_ok") else "✗")
             c2.metric("Cassandra", "✓" if _chk.get("cassandra_ok") else "✗")
-            c3.metric("Airflow", "✓" if _chk.get("airflow_ok") else "✗")
-            c4.metric("API Swagger", "✓" if _chk.get("api_ok") else "✗")
-            c5.metric("Keyspace", "✓" if _chk.get("keyspace_ok") else "✗")
-            c6, c7 = st.columns(2)
-            c6.metric("Topics Kafka", "✓" if _chk.get("topics_ok") else "✗")
-            c7.metric("Catálogo Hive", "✓" if _chk.get("hive_catalog_ok") else ("—" if not _chk.get("hive_cli_available") else "✗"))
+            c3.metric("NiFi", "✓" if _chk.get("nifi_ok") else "✗")
+            c4.metric("Airflow", "✓" if _chk.get("airflow_ok") else "✗")
+            c5.metric("API Swagger", "✓" if _chk.get("api_ok") else "✗")
+            c6.metric("Keyspace", "✓" if _chk.get("keyspace_ok") else "✗")
+            c7, c8 = st.columns(2)
+            c7.metric("Topics Kafka", "✓" if _chk.get("topics_ok") else "✗")
+            c8.metric("Catálogo Hive", "✓" if _chk.get("hive_catalog_ok") else ("—" if not _chk.get("hive_cli_available") else "✗"))
 
         if not _chk.get("cassandra_ok", True):
             with st.expander("Si Cassandra no arranca — qué hacer", expanded=True):
@@ -2460,6 +2706,15 @@ def main():
                         st.error("No se pudo detener NiFi o todavía está levantado. Revisa la salida.")
                     st.code(msg[:6000] or "—")
 
+            with st.expander("Si el enlace a NiFi no abre (No se puede conectar)"):
+                st.markdown(
+                    "NiFi escucha en **127.0.0.1** por defecto; el enlace puede usar la IP de la interfaz "
+                    "(ej. 10.0.2.15 en VM) y fallar. **Opciones:**\n\n"
+                    "1. Abre **https://localhost:8443/nifi** en el navegador (desde la misma máquina donde corre NiFi).\n\n"
+                    "2. Para que el enlace con IP funcione, ejecuta `./scripts/patch_nifi_bind_all_interfaces.sh` "
+                    "y reinicia NiFi (`nifi.sh stop` → `nifi.sh start`)."
+                )
+
             st.markdown("### Procesadores que necesitas (Fase I)")
             st.write(
                 "Esta lista es la implementación típica para cumplir el PDF: consumir APIs (OpenWeather/ElectricityMaps), transformar y publicar en Kafka (`energy_raw` y `weather_raw`)."
@@ -2496,7 +2751,7 @@ def main():
 
             st.markdown("### Conectar y ejecutar")
             st.caption("Tras crear los procesadores, conéctalos entre sí (wiring), configura Kafka Connection Service y arranca/para la ejecución.")
-            colC1, colC2, colC3 = st.columns(3)
+            colC1, colC2, colC3, colC4 = st.columns(4)
             with colC1:
                 if st.button("Conectar procesadores (Fase I)", type="primary", use_container_width=True):
                     with st.spinner("Conectando y configurando procesadores..."):
@@ -2524,6 +2779,15 @@ def main():
                     else:
                         st.error(res.get("error", "Error."))
                         st.code(str(res)[:3000])
+            with colC4:
+                if st.button("Alinear procesadores", use_container_width=True):
+                    with st.spinner("Actualizando posiciones en el canvas..."):
+                        res = _nifi_alinear_procesadores_fase1()
+                    if res.get("ok"):
+                        st.success(res.get("message", "Procesadores alineados."))
+                    else:
+                        st.error(res.get("error", "Error."))
+                        st.code(str(res)[:3000])
 
     with tab3:
         st.markdown("### Qué haces (KDD: selección / transformación / carga)")
@@ -2536,16 +2800,23 @@ def main():
             "Verifica tablas Hive en **Monitorización → consultas por capa (Fase 2: Hive)**. "
             "CLI: `spark-sql` o `hive` con Java 21 + Hive 4.2."
         )
+        import importlib as _il_guia
+
+        _guia_spark = _il_guia.import_module("app_guia_logs_spark_usuario")
+        _guia_spark.render_panel_guia_spark()
+
         colA, colB = st.columns(2)
         with colA:
             if st.button("Arrancar procesamiento (Spark)", type="primary", use_container_width=True):
                 with st.spinner("Ejecutando Spark (procesamiento_grafos.py)..."):
                     rc, out = _fase2_ejecutar_spark()
                 if rc == 0:
-                    st.success("Spark finalizó correctamente.")
+                    st.success("Spark finalizó correctamente (revisa el resumen para decidir).")
                 else:
                     st.error("Spark falló (revisa Cassandra en 9042 y keyspace).")
-                with st.expander("Salida Spark"):
+                _guia_spark.render_resumen_tras_spark(rc, out)
+                with st.expander("Detalle técnico del log (para informática o soporte)", expanded=False):
+                    st.caption("AVISOS (WARN) suelen ser normales; no indican por sí solos un fallo.")
                     st.code(out[:12000])
                 # Fuerza refresco de la conexión Cassandra cacheada.
                 _cluster_cassandra.clear()

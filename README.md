@@ -111,6 +111,7 @@ python procesamiento/persistir_hive_ingesta.py --energy /tmp/smart_grid_last_ene
 | [README_DESPLIEGUE_SMART_GRID.md](README_DESPLIEGUE_SMART_GRID.md) | Servicios, Cassandra, Kafka, troubleshooting |
 | [docs/AIRFLOW.md](docs/AIRFLOW.md) | DAGs y carpeta `dags` |
 | [docs/FLUJO_DATOS_Y_REQUISITOS.md](docs/FLUJO_DATOS_Y_REQUISITOS.md) | Flujo técnico Smart Grid |
+| [docs/GUIA_DECISIONES_SPARK_YARN.md](docs/GUIA_DECISIONES_SPARK_YARN.md) | **No técnicos:** qué decidir ante logs Spark/Hadoop (WARN vs ERROR) |
 | [AGENTS.md](AGENTS.md) | Convenciones para varios agentes |
 
 ---

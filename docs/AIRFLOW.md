@@ -73,12 +73,13 @@ airflow scheduler
 
 ### Resumen de comandos
 
-| Proceso      | Comando                      | Puerto |
-|-------------|------------------------------|--------|
-| API/Web     | `airflow api-server -p 8080` | 8080   |
-| Scheduler   | `airflow scheduler`          | —      |
+| Proceso        | Comando                        | Puerto |
+|----------------|--------------------------------|--------|
+| API/Web        | `airflow api-server -p 8080`   | 8080   |
+| DAG Processor  | `airflow dag-processor`        | —      |
+| Scheduler      | `airflow scheduler`            | —      |
 
-Ambos deben estar en ejecución para que los DAGs se ejecuten correctamente.
+**Airflow 3.x:** El **dag-processor** es obligatorio para que los DAGs aparezcan en la UI. Sin él verás "0 DAGs" aunque los archivos estén en `~/airflow/dags`. El script `iniciar_servicios.sh` arranca los tres procesos.
 
 ---
 
@@ -135,62 +136,118 @@ Estos DAGs están en la carpeta **`orquestacion/`** del proyecto. Para que Airfl
 
 ---
 
+---
+
+## Guía paso a paso: primera vez o reinstalación
+
+### 1. Sincronizar DAGs
+
+```bash
+cd ~/smart_energy
+export AIRFLOW_HOME=~/airflow
+./scripts/sync_dags_airflow.sh
+```
+
+Verifica: `ls ~/airflow/dags/dag_*.py` — deben aparecer 10 archivos.
+
+### 2. Arrancar Airflow (tres procesos)
+
+```bash
+./scripts/parar_servicios.sh --only airflow   # por si estaba en marcha
+./scripts/iniciar_servicios.sh --only airflow
+```
+
+El script arranca: **api-server** (8080), **dag-processor** (obligatorio en Airflow 3.x para que aparezcan DAGs), **scheduler**.
+
+### 3. Obtener contraseña
+
+Si es la primera vez, consulta `docs/CREDENCIALES_UI.md`. Resumen:
+
+- **SimpleAuthManager (default 3.x):** `cat ~/airflow/simple_auth_manager_passwords.json.generated`
+- **Opcional:** desactivar auth con `simple_auth_manager_all_admins = True` en `airflow.cfg`
+
+### 4. Acceder a la UI
+
+- URL: http://localhost:8080 (o http://&lt;IP&gt;:8080)
+- Usuario: `admin`
+- Contraseña: la obtenida en el paso 3
+
+### 5. Comprobar que los DAGs aparecen
+
+Tras 30–60 segundos, la UI debe mostrar los 10 DAGs. Si no: ver *Problemas típicos* abajo.
+
+---
+
 ## DAGs en la instalación local (`~/airflow/dags`)
 
-Si en tu máquina la carpeta de DAGs es `~/airflow/dags`, pueden existir DAGs adicionales (copias o variantes) que no están en el repositorio. Ejemplos típicos:
+Si en tu máquina la carpeta de DAGs es `~/airflow/dags`, pueden existir DAGs adicionales (copias o variantes) que no están en el repositorio. El pipeline oficial del repo es **Smart Grid** (`dag_maestro_smart_grid`, etc.).
 
-DAGs adicionales en instalaciones locales (`~/airflow/dags`) pueden coexistir; el pipeline oficial del repo es **Smart Grid** (`dag_maestro_smart_grid`, etc.).
+---
 
 ## Problemas típicos y solución rápida
 
-- **No aparecen todos los DAGs en la UI o en `airflow dags list`**:
-  1. Verifica que `AIRFLOW_HOME` apunta a `~/airflow` y que los ficheros `dag_*.py` están en `~/airflow/dags`.
-  2. Evita **enlaces simbólicos recursivos** en la carpeta de DAGs.
-  3. Desde el proyecto, con el entorno virtual activado, vuelve a serializar los DAGs en la base de datos:
+### No aparecen DAGs (0 DAGs) o faltan algunos
 
-     ```bash
+**Causa habitual en Airflow 3.x:** falta el proceso **dag-processor**.
 
-### Arranque de Airflow con Docker (opcional)
-
-En máquinas justas de recursos se puede levantar solo Airflow en Docker, manteniendo HDFS/Kafka/Cassandra en el host o en otros contenedores.
-
-1. Construir y arrancar el servicio de Airflow:
-
+1. **Verificar que dag-processor está en marcha:**
    ```bash
-   cd ~/smart_energy
-   docker compose -f docker-compose.airflow.yml up --build
+   pgrep -f "airflow dag-processor"
+   ```
+   Si no devuelve un PID, arrancar:
+   ```bash
+   cd ~/smart_energy && source venv/bin/activate
+   export AIRFLOW_HOME=~/airflow
+   nohup airflow dag-processor >> /tmp/smart_grid_airflow_dag_processor.log 2>&1 &
    ```
 
-2. Acceder a la interfaz web/API:
-
-   - URL: http://localhost:8080
-   - Usuario: `admin`
-   - Contraseña: `admin` (creada automáticamente si no existe).
-
-3. Detener el contenedor cuando no sea necesario:
-
+2. **Sincronizar DAGs** (si faltan o están desactualizados):
    ```bash
-   docker compose -f docker-compose.airflow.yml down
+   ./scripts/sync_dags_airflow.sh
    ```
 
-Los DAGs se leen desde la carpeta `orquestacion/` del proyecto, montada dentro del contenedor en `/opt/airflow/dags`.
+3. **Verificar que los archivos están en `~/airflow/dags`:**
+   ```bash
+   ls ~/airflow/dags/dag_*.py
+   ```
 
-     cd ~/smart_energy
-     source venv_transporte/bin/activate
-     export AIRFLOW_HOME=~/airflow
-     airflow dags reserialize
-     ```
+4. **Log del dag-processor:**
+   ```bash
+   tail -50 /tmp/smart_grid_airflow_dag_processor.log
+   ```
+   Debe mostrar "Creating ORM DAG for dag_..." para cada DAG.
 
-  4. Espera unos segundos, ejecuta `airflow dags list` y refresca la web de Airflow (F5).
+5. Esperar 30–60 s y refrescar la UI (F5).
 
-- **Quiero ver los logs del api-server en la terminal**:
-  - Lanza el servidor **sin `-D`** para que no vaya a segundo plano:
+### 401 Unauthorized / contraseña incorrecta
 
-    ```bash
-    airflow api-server -H 0.0.0.0 -p 8080
-    ```
+Ver `docs/CREDENCIALES_UI.md` — en Airflow 3.x la contraseña por defecto no es `admin`; está en `simple_auth_manager_passwords.json.generated` o en el log del api-server.
 
-    Esa terminal quedará ocupada mostrando los logs hasta que pulses `Ctrl+C`.
+### Ver logs en la terminal
+
+Para ver el api-server en primer plano (logs en pantalla):
+
+```bash
+airflow api-server -H 0.0.0.0 -p 8080
+```
+
+Logs del proyecto: `/tmp/smart_grid_airflow_api.log`, `/tmp/smart_grid_airflow_dag_processor.log`, `/tmp/smart_grid_airflow_scheduler.log`.
+
+---
+
+## Arranque de Airflow con Docker (opcional)
+
+En máquinas justas de recursos se puede levantar solo Airflow en Docker:
+
+```bash
+cd ~/smart_energy
+docker compose -f docker-compose.airflow.yml up --build
+```
+
+- URL: http://localhost:8080
+- Usuario/contraseña: según configuración del compose (a menudo `admin`/`admin`)
+
+Los DAGs se leen desde `orquestacion/` montada en el contenedor.
 
 ---
 
@@ -198,5 +255,7 @@ Los DAGs se leen desde la carpeta `orquestacion/` del proyecto, montada dentro d
 
 - Interfaz web: http://localhost:8080  
 - DAGs del proyecto: `orquestacion/dag_*.py`  
+- Sincronizar DAGs: `./scripts/sync_dags_airflow.sh`  
 - Configuración Airflow: `$AIRFLOW_HOME/airflow.cfg`  
-- Logs: `$AIRFLOW_HOME/logs/`
+- Credenciales: `docs/CREDENCIALES_UI.md`  
+- Logs: `$AIRFLOW_HOME/logs/`, `/tmp/smart_grid_airflow_*.log`

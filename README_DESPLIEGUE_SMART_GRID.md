@@ -14,7 +14,7 @@ Arranque integrado con el resto del stack (HDFS + Kafka + Cassandra + Airflow de
 cd ~/smart_energy
 ./iniciar_servicios              # o: ./scripts/iniciar_servicios.sh
 ./scripts/iniciar_servicios.sh --only cassandra   # solo Cassandra
-./scripts/iniciar_servicios.sh --only airflow     # solo Airflow (api-server + scheduler)
+./scripts/iniciar_servicios.sh --only airflow     # solo Airflow (api-server + dag-processor + scheduler)
 ```
 
 Solo Cassandra (manual):
@@ -79,11 +79,11 @@ streamlit run app_visualizacion.py
 
 ## Airflow
 
-Airflow está integrado en el entorno de ejecución: `./scripts/iniciar_servicios.sh` arranca el api-server (puerto 8080) y el scheduler. Para pararlo: `./scripts/parar_servicios.sh --only airflow`.
+Airflow está integrado: `./scripts/iniciar_servicios.sh` arranca api-server (8080), **dag-processor** (obligatorio en Airflow 3.x para ver DAGs) y scheduler. Para pararlo: `./scripts/parar_servicios.sh --only airflow`.
 
-Copiar DAGs de `orquestacion/` al directorio `dags/` de Airflow (o usar `./scripts/sync_dags_airflow.sh`).
+**Sincronizar DAGs:** `./scripts/sync_dags_airflow.sh` (copia `orquestacion/dag_*.py` → `~/airflow/dags/`).
 
-Ver **[docs/AIRFLOW.md](docs/AIRFLOW.md)** y **[docs/CREDENCIALES_UI.md](docs/CREDENCIALES_UI.md)** (credenciales admin/admin).
+Ver **[docs/AIRFLOW.md](docs/AIRFLOW.md)** (guía paso a paso, troubleshooting) y **[docs/CREDENCIALES_UI.md](docs/CREDENCIALES_UI.md)** (credenciales; Airflow 3.x usa SimpleAuthManager, contraseña en `simple_auth_manager_passwords.json.generated`).
 
 ---
 
@@ -98,6 +98,8 @@ Instalación Hive 4.2: `./scripts/instalar_hive_java21.sh`.
 **`hive -e` en Hive 4.x:** por defecto el comando `hive` se redirige a **Beeline**, que necesita **HiveServer2** (JDBC). Sin servidor verás *«Cannot run commands specified using -e. No current connection»*. Opciones: (1) **`./scripts/patch_hive_use_cli_driver.sh`** y luego `export USE_BEELINE_FOR_HIVE_CLI=false` para usar el CLI clásico con metastore local; (2) arrancar **HiveServer2** y `beeline -u jdbc:hive2://localhost:10000 -e "SHOW DATABASES;"`; (3) **`spark-sql -e "SHOW DATABASES"`** si Spark comparte el mismo metastore.
 
 **Java 21 + CLI clásico:** si aparece **`InaccessibleObjectException`** en `java.net.URI`, ejecuta **`./scripts/hive_env_java21_opens.sh`** (añade `--add-opens` a `HADOOP_CLIENT_OPTS` en `hive-env.sh`). `app_visualizacion.py` también inyecta estos flags al ejecutar `hive`/`spark-sql`.
+
+**Sin Apache Tez (`NoClassDefFoundError: TezTaskCommunicatorImpl`):** Hive puede intentar el motor **tez** sin tener Tez en el classpath. **Solución:** en `conf/hive-site.xml` define `hive.execution.engine` = **`mr`** (MapReduce), o ejecuta `hive --hiveconf hive.execution.engine=mr -e "SHOW DATABASES;"`. Las instalaciones nuevas con **`./scripts/instalar_hive_java21.sh`** ya incluyen `mr` en el `hive-site.xml` generado. Si tienes Tez instalado y quieres usarlo, no fuerces `mr`.
 
 Inicialización:
 
@@ -122,6 +124,7 @@ python procesamiento/persistir_hive_ingesta.py --energy /tmp/smart_grid_last_ene
 - **Hive `ClassNotFoundException: org.apache.derby.jdbc.EmbeddedDriver`:** `./scripts/instalar_derby_en_hive.sh`; si persiste, `./scripts/fix_hive_schematool_derby.sh` (copia Derby a Hadoop common/lib). Comprueba `HIVE_HOME` si tienes varios Hive instalados.
 - **Hive `Cannot run commands specified using -e. No current connection`:** Hive 4 usa Beeline por defecto (necesita HiveServer2). Ver arriba: **`./scripts/patch_hive_use_cli_driver.sh`** + `export USE_BEELINE_FOR_HIVE_CLI=false`, o `beeline` contra el puerto 10000, o `spark-sql`.
 - **Hive `InaccessibleObjectException` / `java.net`** con Java 21: **`./scripts/hive_env_java21_opens.sh`** (o reinstalar con `./scripts/instalar_hive_java21.sh` actualizado).
+- **Hive `TezTaskCommunicatorImpl` / `org.apache.tez`:** sin Tez instalado, fuerza **`hive.execution.engine=mr`** en `hive-site.xml` o `hive --hiveconf hive.execution.engine=mr ...` (ver sección Hive arriba).
 - **Cassandra no arranca con Java 21** (`Unrecognized VM option 'UseBiasedLocking'`): **`./scripts/patch_cassandra_java21_jvm.sh`** y vuelve a `./iniciar_servicios --only cassandra`.
 
 ---

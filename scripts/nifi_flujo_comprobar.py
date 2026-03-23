@@ -116,8 +116,23 @@ def main():
 
     print("--- 2. PROVENANCE (últimos eventos) ---")
     try:
-        prov = _req("POST", "/provenance", {"maxResults": 50}, token=token)
-        events = prov.get("provenanceEvents", {}).get("provenanceEvents", prov.get("provenanceEvents", []))
+        # API asíncrona: POST crea búsqueda, poll GET hasta terminar, DELETE al final
+        prov = _req("POST", "/provenance", {"provenance": {"request": {"maxResults": 50}}}, token=token)
+        prov_id = (prov.get("provenance") or {}).get("id")
+        events = []
+        if prov_id:
+            for _ in range(15):
+                time.sleep(1)
+                p = _req("GET", f"/provenance/{prov_id}", token=token)
+                prov_obj = p.get("provenance", p)
+                if prov_obj.get("finished"):
+                    results = prov_obj.get("results") or {}
+                    events = results.get("provenanceEvents") or []
+                    break
+            try:
+                _req("DELETE", f"/provenance/{prov_id}", token=token)
+            except Exception:
+                pass
         print(f"Eventos totales: {len(events)}")
         for e in events[:15]:
             print(f"  {e.get('eventType')} | {e.get('componentName')} | uuid:{str(e.get('flowFileUuid',''))[:12]}... | {e.get('transitUri','')[:60]}")
