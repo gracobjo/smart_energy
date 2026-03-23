@@ -43,15 +43,36 @@ def _simular_escenario(
 
     # 1) Estrés de carga/capacidad en subestaciones.
     for sid, s in sub_sim.items():
-        pot = _to_float(s.get("potencia_mw"), 0.0) * (1.0 + incremento_carga_pct / 100.0)
-        cap = _to_float(s.get("capacidad_mw"), 0.0) * (1.0 - perdida_capacidad_pct / 100.0)
+        cap_orig = max(_to_float(s.get("capacidad_mw"), 0.0), 1.0)
+        pot_orig = _to_float(s.get("potencia_mw"), 0.0)
+        uso_orig = _to_float(s.get("uso_pct"), 0.0)
+
+        # Si no hay potencia real (modo demo o telemetría incompleta), estimamos una base
+        # para que la simulación con sliders sea operativa y no quede plana en 0.
+        if pot_orig <= 0.0:
+            if uso_orig > 0.0:
+                pot_orig = cap_orig * (uso_orig / 100.0)
+            else:
+                pot_orig = cap_orig * 0.35
+
+        pot = pot_orig * (1.0 + incremento_carga_pct / 100.0)
+        cap = cap_orig * (1.0 - perdida_capacidad_pct / 100.0)
         cap = max(cap, 1.0)
         uso = (pot / cap) * 100.0
-        v = _to_float(s.get("voltaje_kv"), 220.0)
+
+        # Ajuste de voltaje sintético suave en estrés alto para que el componente de
+        # sobretensión/subtensión también responda en escenarios sin medida PMU real.
+        v_base = _to_float(s.get("voltaje_kv"), 220.0)
+        v_delta = 0.0
+        if uso >= 85.0:
+            v_delta = -min(12.0, (uso - 85.0) * 0.6)
+        v = v_base + v_delta
+
         est = _estado_estimado_subestacion(v, uso)
         s["potencia_mw"] = round(pot, 2)
         s["capacidad_mw"] = round(cap, 2)
         s["uso_pct"] = round(uso, 2)
+        s["voltaje_kv"] = round(v, 2)
         s["estado"] = est
         if est != "ok" and not s.get("motivo"):
             s["motivo"] = "Escenario de contingencia (carga/capacidad)."
@@ -199,14 +220,19 @@ def render_riesgo_apagon_panel(
             key="riesgo_perdida_cap_pct",
         )
 
-    lineas_extra = st.slider(
-        "Líneas adicionales en estado anómalo (simulación de cascada)",
-        min_value=0,
-        max_value=max(0, len(lineas)),
-        value=min(2, max(0, len(lineas))),
-        step=1,
-        key="riesgo_lineas_extra",
-    )
+    max_lineas = max(0, len(lineas))
+    if max_lineas <= 0:
+        st.caption("Sin líneas disponibles en el snapshot actual; la simulación de cascada en líneas queda en 0.")
+        lineas_extra = 0
+    else:
+        lineas_extra = st.slider(
+            "Líneas adicionales en estado anómalo (simulación de cascada)",
+            min_value=0,
+            max_value=max_lineas,
+            value=min(2, max_lineas),
+            step=1,
+            key="riesgo_lineas_extra",
+        )
 
     escenario = _simular_escenario(
         subestaciones=subestaciones,
