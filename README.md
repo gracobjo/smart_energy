@@ -1,4 +1,153 @@
-# Smart Grid — Monitoreo de redes de energía inteligentes (España)
+# Smart Energy / Smart Grid (España)
+
+Este repositorio contiene **dos líneas de producto** que conviven de forma incremental:
+
+1. **SaaS Smart Energy (MVP)** — API multiusuario, PostgreSQL, panel web Next.js, WebSockets y modelos en `ai/` (scikit-learn).
+2. **Smart Grid Big Data (legacy)** — Kafka, Spark, Cassandra, Hive, Airflow y dashboard Streamlit (sin reescritura forzada).
+
+---
+
+## Smart Energy SaaS (MVP)
+
+### Arquitectura
+
+```mermaid
+flowchart LR
+  subgraph clients [Clientes]
+    WEB[Next.js]
+  end
+  subgraph api [Backend]
+    FAST[FastAPI]
+    WS[WebSocket /ws/energy]
+    SIM[Simulador IoT]
+  end
+  subgraph data [Datos]
+    PG[(PostgreSQL)]
+  end
+  subgraph ml [IA]
+    SK[ai/: RandomForest + IsolationForest]
+  end
+  WEB -->|REST JWT| FAST
+  WEB -->|token query| WS
+  FAST --> PG
+  SIM --> PG
+  SIM --> WS
+  FAST --> SK
+```
+
+### Estructura de carpetas (nuevo layout)
+
+| Ruta | Rol |
+|------|-----|
+| `backend/` | FastAPI (`app/`), **Alembic** (`alembic/`, `alembic.ini`), Dockerfile, `requirements.txt`. |
+| `frontend/` | Next.js **14.2.35** (parches de seguridad), panel con Recharts y WebSocket. |
+| `ai/` | Predicción de consumo y detección de anomalías (importable desde el backend). |
+| `infrastructure/` | Documentación de despliegue complementaria; compose en raíz. |
+| `docs/` | Especificaciones y diagramas del Smart Grid (existentes). |
+
+### Arranque con Docker
+
+Requisitos: Docker y Docker Compose v2.
+
+```bash
+cp .env.example .env   # opcional: ajustar JWT_SECRET y notificaciones
+docker compose up --build
+```
+
+- **API:** http://localhost:8000/docs  
+- **Frontend:** http://localhost:3000  
+- **PostgreSQL:** puerto `5432` (usuario/clave `smartenergy` / `smartenergy` en el compose por defecto).
+
+En Docker, el navegador llama a **`/ingest-api/...`** (mismo origen `:3000`); un **Route Handler** de Next reenvía a `BACKEND_INTERNAL_URL` (`http://backend:8000`) para evitar **«Failed to fetch»** y fallos del proxy `rewrites` en modo `standalone`. El WebSocket sigue en `ws://127.0.0.1:8000` en el host.
+
+El **primer usuario registrado** vía `POST /auth/register` recibe rol **admin**. Los siguientes son **user**. Opcionalmente se puede indicar `tenant_name` en el registro para agrupación multi-tenant (tabla `tenants`).
+
+### API REST (resumen)
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/auth/register` | Alta de usuario (Pydantic). |
+| POST | `/auth/login` | OAuth2-style JSON → `access_token` JWT. |
+| GET | `/users/me` | Perfil actual. |
+| GET | `/users` | Lista usuarios (solo **admin**). |
+| PATCH | `/users/{id}` | Rol / tenant (solo **admin**). |
+| GET/POST/PATCH/DELETE | `/devices` | CRUD dispositivos del usuario (admin ve todos). |
+| GET | `/energy/readings?device_id=` | Histórico de lecturas. |
+| POST | `/energy/readings?device_id=` | Cuerpo `{"consumption": n}` — lectura manual. |
+| GET | `/analytics/predict` | Predicción horaria (histórico en PG). |
+| POST | `/analytics/anomalies` | Anomalías por `device_id` o lista `consumptions`. |
+| GET | `/analytics/suggestions` | Sugerencias heurísticas de optimización (bonus). |
+| GET | `/alerts` | Alertas (filtro opcional `device_id`). |
+| GET | `/health` | Salud del servicio. |
+| WS | `/ws/energy?token=<JWT>` | Broadcast de lecturas simuladas en JSON. |
+
+**Roles:** cabecera `Authorization: Bearer <token>`.  
+**Notificaciones (bonus):** si defines `TELEGRAM_*` o SMTP en `.env`, se intenta notificar al crear alertas por picos.
+
+### Desarrollo local (sin Docker)
+
+```bash
+# PostgreSQL en marcha y base smartenergy creada
+pip install -r backend/requirements.txt
+cd backend
+# Windows PowerShell:
+$env:DATABASE_URL="postgresql+psycopg2://smartenergy:smartenergy@localhost:5432/smartenergy"
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+En otra terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+El backend inserta el directorio raíz del repo en `sys.path` para poder hacer `import ai` sin configurar `PYTHONPATH` (en Docker se usa `PYTHONPATH=/app`).
+
+### Migraciones (Alembic)
+
+Por defecto (`RUN_ALEMBIC_ON_STARTUP=true` en `.env.example`) el arranque del backend ejecuta **`alembic upgrade head`** antes de levantar el simulador IoT.
+
+Comandos útiles (desde `backend/`, con `DATABASE_URL` configurada):
+
+```bash
+alembic current
+alembic history
+alembic upgrade head
+# Nueva revisión a partir de modelos (revisar siempre el diff generado):
+alembic revision --autogenerate -m "descripcion_cambio"
+```
+
+Si ya tenías tablas creadas solo con `create_all` y al pasar a Alembic aparece error de «relation already exists», marca la revisión inicial sin ejecutarla:
+
+```bash
+alembic stamp 0001_initial
+```
+
+Para desactivar Alembic en arranque (solo pruebas locales): `RUN_ALEMBIC_ON_STARTUP=false` (el backend usará `create_all`).
+
+### Plan de migración incremental (recomendado)
+
+1. **Fase 0** — Desplegar solo SaaS (`docker compose up`) y validar registro, dispositivos y gráficas.
+2. **Fase 1** — Opcional: job que lea agregados del pipeline legacy (p. ej. JSON de `producer.py` o vistas Hive) y escriba en `energy_readings` mediante script ETL (no incluido en el MVP).
+3. **Fase 2** — Sustituir o paralelizar el simulador IoT por ingestión real (MQTT/HTTP) publicando al mismo modelo de datos.
+4. **Fase 3** — Hardening de secretos, observabilidad (OpenTelemetry, métricas), endurecimiento de despliegue.
+
+### Capturas de pantalla (placeholder)
+
+Sustituir por capturas reales cuando el despliegue esté validado:
+
+- `docs/screenshots/login.png` (pendiente)
+- `docs/screenshots/dashboard.png` (pendiente)
+
+### Documentación operativa (SaaS)
+
+- **[docs/SMART_ENERGY_SAAS_OPERACION.md](docs/SMART_ENERGY_SAAS_OPERACION.md)** — Arranque y parada con Docker, registro/login, proxy `/ingest-api`, WebSocket, errores frecuentes y Alembic.
+
+---
+
+## Smart Grid — Monitoreo Big Data (legacy)
 
 Sistema **Big Data** basado en el ciclo **KDD** y arquitectura **Lambda/Kappa**: ingesta con **Python** (Kafka), procesamiento **Spark 3.5** (GraphFrames, streaming 15 min), **Cassandra 5.0** (estado en tiempo real), **Hive** (histórico y sostenibilidad), **Airflow 2.10.x** (orquestación).
 
@@ -99,6 +248,7 @@ python procesamiento/persistir_hive_ingesta.py --energy /tmp/smart_grid_last_ene
 | [README_DESPLIEGUE_SMART_GRID.md](README_DESPLIEGUE_SMART_GRID.md) | Servicios, Cassandra, Kafka, troubleshooting |
 | [docs/AIRFLOW.md](docs/AIRFLOW.md) | DAGs y carpeta `dags` |
 | [docs/FLUJO_DATOS_Y_REQUISITOS.md](docs/FLUJO_DATOS_Y_REQUISITOS.md) | Flujo técnico Smart Grid |
+| [docs/SMART_ENERGY_SAAS_OPERACION.md](docs/SMART_ENERGY_SAAS_OPERACION.md) | Operación del MVP SaaS (Docker, proxy, troubleshooting) |
 | [AGENTS.md](AGENTS.md) | Convenciones para varios agentes |
 
 ---

@@ -39,6 +39,11 @@ derby.log
 logs/
 *.log
 
+# SaaS frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
 # IDE
 .idea/
 .vscode/

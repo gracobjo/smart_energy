@@ -1,0 +1,16 @@
+# API SaaS Smart Energy (MVP)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sqlalchemy>=2.0.36
+alembic>=1.14.0
+psycopg2-binary>=2.9.10
+pydantic[email]>=2.10.0
+pydantic-settings>=2.6.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+# passlib 1.7.4 + bcrypt 4.1+ puede romper el hash en runtime (500 en /auth/register)
+bcrypt>=3.2.2,<4.1.0
+python-multipart>=0.0.17
+httpx>=0.27.0
+scikit-learn>=1.5.0
+numpy>=2.0.0
